@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import re
+import uuid
 from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
@@ -339,16 +340,38 @@ async def ws_chat(websocket: WebSocket):
             # Start a new workflow
             run_id = run_id or _make_run_id(user_message)
             workflow_id = f"agent-{run_id}"
+
+            # Conversation thread for multi-turn memory. Server-generated and
+            # unguessable. A client may continue a conversation only by echoing
+            # a thread_id we previously issued (validated against known ids); an
+            # arbitrary client-supplied value is rejected so it cannot read
+            # another conversation's history.
+            requested_thread = data.get("thread_id")
+            known_threads = {
+                info.get("thread_id")
+                for info in run_registry.values()
+                if info.get("thread_id")
+            }
+            if requested_thread in known_threads:
+                thread_id = requested_thread
+            else:
+                thread_id = uuid.uuid4().hex
+
             run_registry[run_id] = {
                 "workflow_id": workflow_id,
                 "user_message": user_message,
                 "status": "running",
+                "thread_id": thread_id,
             }
             _save_registry()
 
             await client.start_workflow(
                 AgentWorkflow.run,
-                WorkflowInput(run_id=run_id, user_message=user_message),
+                WorkflowInput(
+                    run_id=run_id,
+                    user_message=user_message,
+                    thread_id=thread_id,
+                ),
                 id=workflow_id,
                 task_queue=TASK_QUEUE,
             )
@@ -356,6 +379,7 @@ async def ws_chat(websocket: WebSocket):
             await websocket.send_text(json.dumps({
                 "type": "status",
                 "run_id": run_id,
+                "thread_id": thread_id,
                 "detail": f"Started agent run: {run_id}",
             }))
 

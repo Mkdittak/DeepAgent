@@ -29,8 +29,14 @@ Tool usage:
 """
 
 
-def create_agent():
-    """Create and return the configured Deep Agent."""
+def create_agent(checkpointer=None):
+    """Create and return the configured Deep Agent.
+
+    Args:
+        checkpointer: Optional LangGraph checkpointer. When provided (with a
+            thread_id in the invocation config), the agent persists and reloads
+            conversation state per thread, giving multi-turn memory.
+    """
     return create_deep_agent(
         model="google_genai:gemini-3.5-flash",
         system_prompt=SYSTEM_PROMPT,
@@ -40,6 +46,7 @@ def create_agent():
             generate_xlsx,
             generate_html,
         ],
+        checkpointer=checkpointer,
         # Built-in tools (write_todos, filesystem, execute, task) are included
         # automatically by Deep Agents.
     )

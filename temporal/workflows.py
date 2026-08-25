@@ -21,6 +21,7 @@ class WorkflowInput:
     """Input to the agent workflow."""
     run_id: str
     user_message: str
+    thread_id: str | None = None  # conversation thread for multi-turn memory (M0)
 
 
 @workflow.defn
@@ -39,7 +40,11 @@ class AgentWorkflow:
         """Execute the Deep Agent via an activity and stream progress."""
         result = await workflow.execute_activity(
             run_deep_agent,
-            AgentInput(run_id=input.run_id, user_message=input.user_message),
+            AgentInput(
+                run_id=input.run_id,
+                user_message=input.user_message,
+                thread_id=input.thread_id,
+            ),
             start_to_close_timeout=timedelta(minutes=15),
             heartbeat_timeout=timedelta(minutes=5),
             retry_policy=RetryPolicy(

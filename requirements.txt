@@ -10,6 +10,10 @@ langchain-google-genai>=4.0.0
 # Temporal
 temporalio>=1.10.0
 
+# Conversational memory (M0). SQLite checkpointer for local/dev; swap the
+# saver import to langgraph-checkpoint-postgres in Bucket B for production.
+langgraph-checkpoint-sqlite>=2.0.0
+
 # Tools
 tavily-python>=0.5.0
 python-pptx>=1.0.0

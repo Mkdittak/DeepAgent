@@ -29,6 +29,7 @@ logging.basicConfig(level=logging.INFO)
 class AgentInput:
     run_id: str
     user_message: str
+    thread_id: str | None = None  # conversation thread for multi-turn memory (M0)
 
 
 @dataclass
@@ -128,10 +129,19 @@ async def run_deep_agent(input: AgentInput) -> str:
             label=input.user_message,
         ))
 
-        # Create and invoke the agent
+        # Create and invoke the agent, with a persistent conversation
+        # checkpointer so turns sharing a thread_id share memory. SQLite file
+        # persists across restarts; swap to PostgresSaver in Bucket B.
         from agent.core import create_agent
         from agent.context import RunContext, set_run_context
-        agent = create_agent()
+        from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+
+        checkpoint_path = os.path.join(
+            os.environ.get("ARTIFACT_BASE", "./artifacts"), ".checkpoints.sqlite"
+        )
+        _checkpointer_cm = AsyncSqliteSaver.from_conn_string(checkpoint_path)
+        checkpointer = await _checkpointer_cm.__aenter__()
+        agent = create_agent(checkpointer=checkpointer)
 
         activity.heartbeat("invoking agent")
 
@@ -160,6 +170,7 @@ async def run_deep_agent(input: AgentInput) -> str:
             run_id=input.run_id,
             artifact_dir=artifact_dir,
             progress_cb=_on_tool_progress,
+            thread_id=input.thread_id,
         ))
 
         def flush_tokens():
@@ -173,10 +184,13 @@ async def run_deep_agent(input: AgentInput) -> str:
                 token_buffer = ""
 
         try:
+            _config = {"recursion_limit": 30}
+            if input.thread_id:
+                _config["configurable"] = {"thread_id": input.thread_id}
             async for ev in agent.astream_events(
                 {"messages": [{"role": "user", "content": input.user_message}]},
                 version="v2",
-                config={"recursion_limit": 30},
+                config=_config,
             ):
                 activity.heartbeat("processing")
                 event_type = ev.get("event", "")
@@ -279,6 +293,10 @@ async def run_deep_agent(input: AgentInput) -> str:
                 label=f"{type(e).__name__}: {str(e)[:300]}",
             ))
             raise  # re-raise so Temporal's retry policy can act
+        finally:
+            # Close the checkpointer connection whether the run succeeded,
+            # was cancelled, or errored (and retries).
+            await _checkpointer_cm.__aexit__(None, None, None)
 
         # List final artifacts by scanning the directory
         produced = []
