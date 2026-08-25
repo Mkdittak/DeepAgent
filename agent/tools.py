@@ -82,6 +82,10 @@ async def web_search(query: str) -> str:
     for r in result_list:
         url = r.get("url", "")
         title = r.get("title", "")
+        # Some results carry a whole post as the "title"; clamp it so a single
+        # bad result can't blow out the progress UI.
+        if len(title) > 100:
+            title = title[:100].rstrip() + "…"
         if url:
             await _emit(f"Read: {title} — {url}" if title else url, "web_search")
 

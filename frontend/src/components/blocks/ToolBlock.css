@@ -41,7 +41,13 @@
   flex-direction: column;
   gap: 3px;
 }
-.da-tool-progress-line { font-size: 12px; color: var(--da-fg-muted); word-break: break-word; }
+.da-tool-progress-line {
+  font-size: 12px;
+  color: var(--da-fg-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .da-tool-progress-line a { color: var(--da-accent); text-decoration: none; }
 .da-tool-progress-line a:hover { text-decoration: underline; }
 .da-tool-output { margin-top: 8px; }
