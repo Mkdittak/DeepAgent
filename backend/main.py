@@ -32,6 +32,7 @@ from temporalio.client import Client, WorkflowExecutionStatus
 from temporalio.contrib.workflow_streams import WorkflowStreamClient
 from temporalio.service import RPCError
 
+from backend import store
 from temporal.workflows import AgentWorkflow, WorkflowInput
 from temporal.activities import AgentProgress
 
@@ -195,6 +196,9 @@ def _load_registry():
 
 
 _load_registry()
+# One-time backfill: archive pre-existing runs' threads so the sidebar starts
+# clean (A3). No-op once .thread_registry.json exists.
+store.load(run_registry)
 
 
 def _make_run_id(user_message: str) -> str:
@@ -276,6 +280,25 @@ async def list_runs():
 
 
 # ---------------------------------------------------------------------------
+# Threads (conversations) — the sidebar's data source
+# ---------------------------------------------------------------------------
+
+@app.get("/threads")
+async def list_threads():
+    """Non-deleted threads, newest first, for the sidebar."""
+    return store.list_threads(run_registry)
+
+
+@app.get("/threads/{thread_id}")
+async def get_thread(thread_id: str):
+    """A thread with its runs in order; clicking it loads the conversation."""
+    t = store.get_thread(thread_id, run_registry)
+    if t is None:
+        return JSONResponse({"error": "unknown thread"}, status_code=404)
+    return t
+
+
+# ---------------------------------------------------------------------------
 # v1 event envelope + REST/SSE transport (frontend rewrite)
 # ---------------------------------------------------------------------------
 
@@ -344,8 +367,13 @@ async def _start_agent_run(client: Client, user_message: str, requested_thread: 
         "user_message": user_message,
         "status": "running",
         "thread_id": thread_id,
+        "created_at": datetime.now().astimezone().isoformat(),
     }
     _save_registry()
+    # Thread materializes on this first message (A4); continuing a thread just
+    # bumps its updated_at.
+    store.ensure_thread(thread_id, user_message, run_id)
+    store.touch_thread(thread_id)
     await client.start_workflow(
         AgentWorkflow.run,
         WorkflowInput(run_id=run_id, user_message=user_message, thread_id=thread_id),
