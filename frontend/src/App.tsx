@@ -344,14 +344,10 @@ function renderArtifactBlock(block: Block & { kind: "artifact" }) {
         </div>
         <div className="artifact-card-footer">
           <span className="artifact-filename">{block.filename}</span>
-          <a
-            href={url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="artifact-open-btn"
-          >
-            Open full page
-          </a>
+          {/* "Open full page" link removed: it navigated to agent-authored
+              HTML as a top-level document at the API origin, where its
+              scripts would run with full same-origin access. The sandboxed
+              iframe preview above is the safe way to view it. */}
         </div>
       </div>
     );
