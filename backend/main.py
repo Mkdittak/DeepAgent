@@ -17,7 +17,7 @@ import logging
 import os
 import re
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -120,6 +120,21 @@ def _load_events(run_id: str, from_offset: int = 0) -> list[dict]:
             if off >= from_offset and off not in by_offset:
                 by_offset[off] = env
     return [by_offset[o] for o in sorted(by_offset)]
+
+
+def _current_max_offset(run_id: str) -> int:
+    """Highest offset persisted for a run (-1 if none)."""
+    mx = -1
+    path = _event_file(run_id)
+    if os.path.isfile(path):
+        with contextlib.suppress(OSError):
+            with open(path, "r", encoding="utf-8") as f:
+                for line in f:
+                    try:
+                        mx = max(mx, json.loads(line).get("offset", -1))
+                    except json.JSONDecodeError:
+                        continue
+    return mx
 
 
 def _save_registry():
@@ -362,6 +377,79 @@ async def _persist_run(client: Client, workflow_id: str, run_id: str):
                     break
     except Exception as e:  # never let a persister crash take anything down
         logger.error("persist_run failed for %s: %s", run_id, e)
+
+
+_TERMINAL_STATE = {
+    WorkflowExecutionStatus.COMPLETED: "done",
+    WorkflowExecutionStatus.CANCELED: "cancelled",
+    WorkflowExecutionStatus.FAILED: "error",
+    WorkflowExecutionStatus.TERMINATED: "error",
+    WorkflowExecutionStatus.TIMED_OUT: "error",
+}
+
+
+def _finalize_interrupted(run_id: str, status) -> None:
+    """A run marked 'running' whose workflow is no longer running and can no
+    longer be polled (finished/gone while the backend was down). We cannot
+    recover the missing middle events from a completed workflow, so append a
+    visible incompleteness notice + a terminal event, so Past Runs never shows a
+    silently-truncated conversation.
+    """
+    state = _TERMINAL_STATE.get(status, "error")
+    base = _current_max_offset(run_id)
+    ts = datetime.now(timezone.utc).isoformat()
+    _save_event(run_id, {
+        "v": 1, "run_id": run_id, "offset": base + 1, "ts": ts,
+        "user_id": None, "org_id": None, "type": "text.delta",
+        "text": "\n\n> ⚠️ *The live stream for this run was interrupted by a "
+                "backend restart, so the transcript above may be incomplete. "
+                f"The run finished on the server with status: {state}.*\n",
+    })
+    _save_event(run_id, {
+        "v": 1, "run_id": run_id, "offset": base + 2, "ts": ts,
+        "user_id": None, "org_id": None, "type": "run.finished",
+        "state": state, "note": "backfilled after backend restart",
+    })
+    if run_id in run_registry:
+        run_registry[run_id]["status"] = state
+        _save_registry()
+
+
+async def _recover_running_runs() -> None:
+    """On startup, reconcile runs left marked 'running' by a previous process.
+
+    Still alive  -> re-attach the persister (subscribing from offset 0 replays
+                    the durable log; dedup backfills the gap and it continues
+                    live to completion — full recovery).
+    Finished/gone -> finalize with a terminal + incompleteness notice.
+    """
+    try:
+        client = await get_temporal_client()
+    except Exception as e:
+        logger.error("startup recovery: cannot reach Temporal: %s", e)
+        return
+    for run_id, info in list(run_registry.items()):
+        if info.get("status") != "running":
+            continue
+        wf_id = info.get("workflow_id")
+        if not wf_id:
+            continue
+        try:
+            desc = await client.get_workflow_handle(wf_id).describe()
+            status = desc.status
+        except Exception:
+            status = None  # not found / past retention / unreachable
+        if status == WorkflowExecutionStatus.RUNNING:
+            asyncio.create_task(_persist_run(client, wf_id, run_id))
+            logger.info("startup recovery: re-attached persister for %s (still running)", run_id)
+        else:
+            _finalize_interrupted(run_id, status)
+            logger.info("startup recovery: finalized %s (status=%s)", run_id, status)
+
+
+@app.on_event("startup")
+async def _on_startup() -> None:
+    await _recover_running_runs()
 
 
 @app.post("/runs")
