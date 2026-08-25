@@ -5,14 +5,5 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 3000,
-    proxy: {
-      "/ws": {
-        target: "ws://localhost:8000",
-        ws: true,
-      },
-      "/artifacts": {
-        target: "http://localhost:8000",
-      },
-    },
   },
 });
