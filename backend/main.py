@@ -10,9 +10,12 @@ Endpoints:
 import asyncio
 import contextlib
 import json
+import logging
 import os
 import re
 from datetime import datetime, timedelta
+
+logger = logging.getLogger(__name__)
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -59,10 +62,19 @@ os.makedirs(EVENTS_DIR, exist_ok=True)
 
 
 def _save_registry():
-    """Persist run_registry to disk."""
+    """Persist run_registry to disk atomically.
+
+    Write to a temp file in the same directory, then os.replace() it over the
+    target. os.replace is atomic on the same filesystem, so a crash mid-write
+    can never leave a truncated registry.
+    """
     os.makedirs(ARTIFACT_BASE, exist_ok=True)
-    with open(REGISTRY_FILE, "w", encoding="utf-8") as f:
+    tmp = REGISTRY_FILE + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump(run_registry, f, indent=2)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, REGISTRY_FILE)
 
 
 def _load_registry():
@@ -78,8 +90,19 @@ def _load_registry():
                     run_registry[run_id] = {"workflow_id": info, "user_message": "", "status": "unknown"}
                 else:
                     run_registry[run_id] = info
-        except (json.JSONDecodeError, OSError):
-            pass
+        except json.JSONDecodeError as e:
+            # Do NOT silently reset the registry. Preserve the corrupt file for
+            # inspection and log loudly so the data loss is visible.
+            corrupt = REGISTRY_FILE + ".corrupt"
+            with contextlib.suppress(OSError):
+                os.replace(REGISTRY_FILE, corrupt)
+            logger.error(
+                "Run registry %s is corrupt (%s); moved to %s. Recovering run "
+                "IDs from artifact directories; user_message/status may be lost.",
+                REGISTRY_FILE, e, corrupt,
+            )
+        except OSError as e:
+            logger.error("Could not read run registry %s: %s", REGISTRY_FILE, e)
 
     # Also scan artifact dirs for runs not in registry (backwards compat)
     if os.path.isdir(ARTIFACT_BASE):
