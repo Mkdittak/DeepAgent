@@ -52,11 +52,15 @@ cd frontend && npm install && cd ..
 **Option B** — Manual (4 terminals):
 
 ```
-Terminal 1:  temporal server start-dev
+Terminal 1:  temporal server start-dev --db-filename .temporal.db
 Terminal 2:  python -m temporal.worker
 Terminal 3:  python -m backend.main
 Terminal 4:  cd frontend && npm run dev
 ```
+
+> **Note:** `--db-filename` persists Temporal state to disk. Without it, the dev
+> server runs in-memory and loses all workflows (and run history) on restart.
+> `start.bat` already passes this flag.
 
 ### 4. Open
 
