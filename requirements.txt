@@ -1,0 +1,19 @@
+# Core
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+websockets>=14.0
+
+# Deep Agent
+deepagents>=0.6.0
+langchain-google-genai>=4.0.0
+
+# Temporal
+temporalio>=1.10.0
+
+# Tools
+tavily-python>=0.5.0
+python-pptx>=1.0.0
+openpyxl>=3.1.0
+
+# Env
+python-dotenv>=1.0.0
