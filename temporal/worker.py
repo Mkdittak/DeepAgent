@@ -27,12 +27,18 @@ async def main():
     client = await Client.connect(temporal_address)
     print(f"Starting worker on task queue: {TASK_QUEUE}")
 
+    # Cap concurrent activities explicitly. Each run drives LLM + tool calls,
+    # so this bounds resource use; override with WORKER_MAX_CONCURRENT_ACTIVITIES.
+    max_concurrent = int(os.environ.get("WORKER_MAX_CONCURRENT_ACTIVITIES", "10"))
+
     worker = Worker(
         client,
         task_queue=TASK_QUEUE,
         workflows=[AgentWorkflow],
         activities=[run_deep_agent],
+        max_concurrent_activities=max_concurrent,
     )
+    print(f"max_concurrent_activities={max_concurrent}")
     await worker.run()
 
 

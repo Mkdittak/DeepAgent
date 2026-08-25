@@ -99,13 +99,13 @@ async def run_deep_agent(input: AgentInput) -> str:
     Run the Deep Agent for a user message. Publishes progress events via
     WorkflowStream so the FastAPI layer can forward them to the client.
     """
-    # Set artifact directory per run
+    # Artifact directory per run. Carried in the per-run RunContext (below)
+    # rather than a process-global env var, so concurrent runs stay isolated.
     artifact_dir = os.path.join(
         os.environ.get("ARTIFACT_BASE", "./artifacts"),
         input.run_id,
     )
     os.makedirs(artifact_dir, exist_ok=True)
-    os.environ["ARTIFACT_DIR"] = artifact_dir
 
     # Sequence counter
     _seq = 0
@@ -130,7 +130,7 @@ async def run_deep_agent(input: AgentInput) -> str:
 
         # Create and invoke the agent
         from agent.core import create_agent
-        from agent.tools import set_progress_callback
+        from agent.context import RunContext, set_run_context
         agent = create_agent()
 
         activity.heartbeat("invoking agent")
@@ -154,7 +154,13 @@ async def run_deep_agent(input: AgentInput) -> str:
                 tool=tool_name,
             ))
 
-        set_progress_callback(_on_tool_progress)
+        # Bind this run's context to the current task. Isolated per activity —
+        # concurrent runs no longer share ARTIFACT_DIR or the progress callback.
+        set_run_context(RunContext(
+            run_id=input.run_id,
+            artifact_dir=artifact_dir,
+            progress_cb=_on_tool_progress,
+        ))
 
         def flush_tokens():
             nonlocal token_buffer
@@ -296,8 +302,8 @@ async def run_deep_agent(input: AgentInput) -> str:
             artifacts=produced,
         ))
 
-    # Clean up callback
-    set_progress_callback(None)
+    # No global cleanup needed: RunContext is a task-scoped ContextVar and is
+    # discarded when this activity's task ends.
     return final_response or f"Task completed. Artifacts: {produced}"
 
 

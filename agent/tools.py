@@ -7,28 +7,30 @@ which publishes directly to the WebSocket stream.
 
 import json
 import os
-from typing import Callable, Awaitable
 
 from tavily import AsyncTavilyClient
 
+from agent.context import get_run_context
+
 
 # ---------------------------------------------------------------------------
-# Progress callback — set by the activity before the agent runs
+# Per-run helpers — read the current run's context (no process globals)
 # ---------------------------------------------------------------------------
-
-_progress_cb: Callable[[str, str], Awaitable[None]] | None = None
-
-
-def set_progress_callback(cb: Callable[[str, str], Awaitable[None]] | None):
-    """Called by the activity to wire up live progress publishing."""
-    global _progress_cb
-    _progress_cb = cb
-
 
 async def _emit(label: str, tool: str):
-    """Emit a progress event if the callback is wired."""
-    if _progress_cb:
-        await _progress_cb(label, tool)
+    """Emit a progress event if the current run wired a callback."""
+    ctx = get_run_context()
+    if ctx is not None and ctx.progress_cb is not None:
+        await ctx.progress_cb(label, tool)
+
+
+def _artifact_dir() -> str:
+    """Directory this run writes artifacts to."""
+    ctx = get_run_context()
+    if ctx is not None and ctx.artifact_dir:
+        return ctx.artifact_dir
+    # Fallback for direct/standalone tool use outside an activity.
+    return os.environ.get("ARTIFACT_DIR", "./artifacts")
 
 
 # ---------------------------------------------------------------------------
@@ -126,7 +128,7 @@ async def generate_pptx(title: str, slides: list[dict]) -> str:
                 p.text = bullet
                 p.level = 0
 
-    output_dir = os.environ.get("ARTIFACT_DIR", "./artifacts")
+    output_dir = _artifact_dir()
     os.makedirs(output_dir, exist_ok=True)
     path = os.path.join(output_dir, "presentation.pptx")
     prs.save(path)
@@ -167,7 +169,7 @@ async def generate_xlsx(title: str, headers: list[str], rows: list[list]) -> str
         for col_idx, value in enumerate(row_data, 1):
             ws.cell(row=row_idx, column=col_idx, value=value)
 
-    output_dir = os.environ.get("ARTIFACT_DIR", "./artifacts")
+    output_dir = _artifact_dir()
     os.makedirs(output_dir, exist_ok=True)
     path = os.path.join(output_dir, "results.xlsx")
     wb.save(path)
@@ -207,7 +209,7 @@ async def generate_html(title: str, body_html: str) -> str:
 </body>
 </html>"""
 
-    output_dir = os.environ.get("ARTIFACT_DIR", "./artifacts")
+    output_dir = _artifact_dir()
     os.makedirs(output_dir, exist_ok=True)
     path = os.path.join(output_dir, "index.html")
     with open(path, "w", encoding="utf-8") as f:
