@@ -123,7 +123,13 @@ async def health():
 
 @app.get("/artifacts/{run_id}/{filename}")
 async def download_artifact(run_id: str, filename: str):
-    path = os.path.join(ARTIFACT_BASE, run_id, filename)
+    # Resolve the requested path and confirm it stays inside ARTIFACT_BASE.
+    # Guards against traversal via URL-encoded segments (e.g. run_id="..",
+    # filename=".env"), which would otherwise escape to the project root.
+    base = os.path.realpath(ARTIFACT_BASE)
+    path = os.path.realpath(os.path.join(base, run_id, filename))
+    if path != base and not path.startswith(base + os.sep):
+        return JSONResponse({"error": "not found"}, status_code=404)
     if not os.path.isfile(path):
         return JSONResponse({"error": "not found"}, status_code=404)
     # Serve HTML/HTM inline so browsers render them instead of downloading
