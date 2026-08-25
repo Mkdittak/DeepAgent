@@ -4,10 +4,11 @@
   background: var(--da-surface);
   padding: 10px 12px;
   margin-top: 8px;
-  max-height: 200px;
+  max-height: 45vh;
   overflow-y: auto;
   flex-shrink: 0;
 }
+.da-run-date { font-size: 11px; color: var(--da-fg-muted); font-variant-numeric: tabular-nums; }
 .da-runs-empty { color: var(--da-fg-muted); font-size: 13px; margin: 4px 2px; }
 .da-run-item {
   display: flex;

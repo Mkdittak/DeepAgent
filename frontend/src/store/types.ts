@@ -78,4 +78,5 @@ export interface RunSummary {
   artifacts: string[];
   user_message?: string;
   status?: string;
+  mtime?: number; // epoch seconds (dir mtime); 0 when unknown
 }
