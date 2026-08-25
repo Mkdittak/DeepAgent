@@ -29,9 +29,16 @@ from temporal.activities import AgentProgress
 
 app = FastAPI(title="DeepAgent POC")
 
+# Restrict CORS to the frontend dev origin(s). Override with CORS_ORIGINS
+# (comma-separated) for other environments.
+_default_origins = "http://localhost:3000,http://127.0.0.1:3000"
+CORS_ORIGINS = [
+    o.strip() for o in os.environ.get("CORS_ORIGINS", _default_origins).split(",") if o.strip()
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=CORS_ORIGINS,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -391,4 +398,7 @@ async def ws_chat(websocket: WebSocket):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("backend.main:app", host="0.0.0.0", port=8000, reload=True)
+    # Bind to loopback by default so the API isn't exposed to the whole
+    # network. Override with HOST (e.g. 0.0.0.0) behind a trusted proxy.
+    host = os.environ.get("HOST", "127.0.0.1")
+    uvicorn.run("backend.main:app", host=host, port=8000, reload=True)
