@@ -59,11 +59,15 @@ function reduceEvent(
   seenSeqs: Set<number>
 ): Turn[] {
   const eventType = (data.event_type || data.step || "") as string;
-  const seq = (data.seq ?? -1) as number;
+  // Dedup by the durable stream offset: unique across activity retry attempts
+  // (seq restarts at 0 each attempt, which dropped/spliced retried runs) and
+  // stable across reconnect replays. Fall back to seq for synthetic events
+  // that carry no offset.
+  const dedupKey = (data.offset ?? data.seq ?? -1) as number;
 
-  // Idempotent by seq
-  if (seq >= 0 && seenSeqs.has(seq)) return turns;
-  if (seq >= 0) seenSeqs.add(seq);
+  // Idempotent by dedup key
+  if (dedupKey >= 0 && seenSeqs.has(dedupKey)) return turns;
+  if (dedupKey >= 0) seenSeqs.add(dedupKey);
 
   // Deep-clone turns so React sees new references on every mutation
   const next = turns.map((t) =>

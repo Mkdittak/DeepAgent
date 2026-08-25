@@ -245,6 +245,12 @@ async def _forward_events(websocket: WebSocket, progress_topic, run_id: str) -> 
         msg = {
             "type": "progress",
             "run_id": run_id,
+            # Canonical event id: the durable stream offset. Unlike evt.seq
+            # (which restarts at 0 on every activity retry attempt, causing the
+            # client to drop/splice a retried run's events), offset is assigned
+            # by the append-only log and is monotonic and unique across attempts
+            # and stable across reconnect replays.
+            "offset": item.offset,
             "seq": evt.seq,
             "ts": evt.ts,
             "event_type": evt.type,
