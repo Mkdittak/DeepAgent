@@ -10,6 +10,7 @@ Endpoints:
   GET  /artifacts/{run_id}/{filename} — download produced files
 """
 
+import asyncio
 import contextlib
 import json
 import logging
@@ -27,7 +28,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel
-from temporalio.client import Client
+from temporalio.client import Client, WorkflowExecutionStatus
 from temporalio.contrib.workflow_streams import WorkflowStreamClient
 from temporalio.service import RPCError
 
@@ -53,6 +54,7 @@ app.add_middleware(
 TASK_QUEUE = "deep-agent-queue"
 ARTIFACT_BASE = os.environ.get("ARTIFACT_BASE", "./artifacts")
 REGISTRY_FILE = os.path.join(ARTIFACT_BASE, ".run_registry.json")
+EVENTS_DIR = os.path.join(ARTIFACT_BASE, ".events")
 
 # Persistent map of run_id -> {workflow_id, user_message, status}
 run_registry: dict[str, dict] = {}
@@ -60,6 +62,64 @@ run_registry: dict[str, dict] = {}
 _temporal_client: Client | None = None
 
 TERMINAL_EVENT_TYPES = {"done", "cancelled", "error"}
+
+os.makedirs(EVENTS_DIR, exist_ok=True)
+
+# In-memory cache of the highest offset already persisted per run, so repeated
+# streams/reconnects don't re-append events already on disk.
+_persisted_max: dict[str, int] = {}
+
+
+def _event_file(run_id: str) -> str:
+    """Path to the per-run JSONL v1-event log."""
+    return os.path.join(EVENTS_DIR, f"{run_id}.jsonl")
+
+
+def _save_event(run_id: str, env: dict):
+    """Append a v1 event envelope to the run's JSONL log, deduped by offset.
+
+    Events stream in offset order; we only append offsets beyond the highest
+    already persisted (seeded from the file so it survives process restarts).
+    """
+    offset = env.get("offset", -1)
+    if run_id not in _persisted_max:
+        mx = -1
+        path = _event_file(run_id)
+        if os.path.isfile(path):
+            with contextlib.suppress(OSError):
+                with open(path, "r", encoding="utf-8") as f:
+                    for line in f:
+                        try:
+                            mx = max(mx, json.loads(line).get("offset", -1))
+                        except json.JSONDecodeError:
+                            continue
+        _persisted_max[run_id] = mx
+    if offset <= _persisted_max[run_id]:
+        return
+    with open(_event_file(run_id), "a", encoding="utf-8") as f:
+        f.write(json.dumps(env) + "\n")
+    _persisted_max[run_id] = offset
+
+
+def _load_events(run_id: str, from_offset: int = 0) -> list[dict]:
+    """Load persisted v1 events for a run, deduped by offset and ordered."""
+    path = _event_file(run_id)
+    if not os.path.isfile(path):
+        return []
+    by_offset: dict[int, dict] = {}
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                env = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            off = env.get("offset", -1)
+            if off >= from_offset and off not in by_offset:
+                by_offset[off] = env
+    return [by_offset[o] for o in sorted(by_offset)]
 
 
 def _save_registry():
@@ -280,12 +340,38 @@ async def _start_agent_run(client: Client, user_message: str, requested_thread: 
     return run_id, workflow_id, thread_id
 
 
+async def _persist_run(client: Client, workflow_id: str, run_id: str):
+    """Background: subscribe to a run's durable stream and persist every v1
+    event to JSONL until the run finishes — independent of whether a browser is
+    watching. This is what guarantees Past Runs can replay ANY finished run
+    (fast runs, API-started runs, runs nobody opened). The offset is assigned by
+    the durable log and is only visible here on the consumer side, so this must
+    live in the backend, not the worker.
+    """
+    try:
+        stream_client = WorkflowStreamClient.create(client, workflow_id=workflow_id)
+        progress_topic = stream_client.topic("progress", type=AgentProgress)
+        async with stream_client:
+            async for item in progress_topic.subscribe(from_offset=0):
+                evt: AgentProgress = item.data
+                _save_event(run_id, _v1_envelope(item.offset, evt, run_id))
+                if evt.type in TERMINAL_EVENT_TYPES:
+                    if run_id in run_registry:
+                        run_registry[run_id]["status"] = evt.type
+                        _save_registry()
+                    break
+    except Exception as e:  # never let a persister crash take anything down
+        logger.error("persist_run failed for %s: %s", run_id, e)
+
+
 @app.post("/runs")
 async def create_run(body: StartRunBody):
     client = await get_temporal_client()
     run_id, workflow_id, thread_id = await _start_agent_run(
         client, body.message, body.thread_id
     )
+    # Persist events in the background so the run is replayable after it ends.
+    asyncio.create_task(_persist_run(client, workflow_id, run_id))
     return {"run_id": run_id, "workflow_id": workflow_id, "thread_id": thread_id}
 
 
@@ -302,10 +388,19 @@ async def cancel_run(run_id: str):
     return {"status": "cancel_requested", "run_id": run_id}
 
 
+KEEPALIVE_SECS = 15
+
+
 @app.get("/runs/{run_id}/stream")
 async def stream_run(run_id: str, request: Request):
-    """SSE stream of v1 events. id: = offset; Last-Event-ID resumes at offset+1,
-    so a refresh mid-run replays nothing already seen."""
+    """SSE stream of v1 events. id: = offset; Last-Event-ID resumes at offset+1.
+
+    While the workflow is RUNNING we subscribe to the durable Temporal stream
+    live and persist each event to a per-run JSONL as it passes. Once the
+    workflow has finished it no longer serves poll-subscriptions, so we replay
+    the conversation from that JSONL instead — which is what makes Past Runs
+    render for completed runs.
+    """
     if run_id not in run_registry:
         return JSONResponse({"error": "unknown run"}, status_code=404)
     client = await get_temporal_client()
@@ -313,22 +408,64 @@ async def stream_run(run_id: str, request: Request):
     last_id = request.headers.get("last-event-id")
     from_offset = (int(last_id) + 1) if last_id and last_id.lstrip("-").isdigit() else 0
 
-    async def event_gen():
-        stream_client = WorkflowStreamClient.create(client, workflow_id=workflow_id)
-        progress_topic = stream_client.topic("progress", type=AgentProgress)
-        async with stream_client:
-            async for item in progress_topic.subscribe(from_offset=from_offset):
+    # Is the workflow still running (live subscribe) or finished (replay)?
+    running = False
+    with contextlib.suppress(Exception):
+        desc = await client.get_workflow_handle(workflow_id).describe()
+        running = desc.status == WorkflowExecutionStatus.RUNNING
+
+    def sse(env: dict) -> str:
+        return f"id: {env['offset']}\ndata: {json.dumps(env)}\n\n"
+
+    async def replay_gen():
+        # Finished run: stream the persisted conversation from disk.
+        for env in _load_events(run_id, from_offset):
+            yield sse(env)
+
+    async def live_gen():
+        # Run the subscription in its own task feeding a queue. The keepalive
+        # timeout is on the QUEUE, not the subscribe iterator — cancelling the
+        # subscribe would be treated as end-of-stream and drop the connection.
+        queue: asyncio.Queue = asyncio.Queue()
+
+        async def pump():
+            stream_client = WorkflowStreamClient.create(client, workflow_id=workflow_id)
+            progress_topic = stream_client.topic("progress", type=AgentProgress)
+            try:
+                async with stream_client:
+                    async for item in progress_topic.subscribe(from_offset=from_offset):
+                        await queue.put(item)
+                        if item.data.type in TERMINAL_EVENT_TYPES:
+                            break
+            finally:
+                await queue.put(None)  # sentinel: stream ended
+
+        task = asyncio.create_task(pump())
+        try:
+            while True:
+                try:
+                    item = await asyncio.wait_for(queue.get(), timeout=KEEPALIVE_SECS)
+                except asyncio.TimeoutError:
+                    yield ": ping\n\n"  # idle keepalive; subscription untouched
+                    continue
+                if item is None:
+                    break
                 evt: AgentProgress = item.data
                 env = _v1_envelope(item.offset, evt, run_id)
+                _save_event(run_id, env)  # persist as it streams
                 if evt.type in TERMINAL_EVENT_TYPES and run_id in run_registry:
                     run_registry[run_id]["status"] = evt.type
                     _save_registry()
-                yield f"id: {item.offset}\ndata: {json.dumps(env)}\n\n"
+                yield sse(env)
                 if evt.type in TERMINAL_EVENT_TYPES:
                     break
+        finally:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
 
     return StreamingResponse(
-        event_gen(),
+        replay_gen() if not running else live_gen(),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
