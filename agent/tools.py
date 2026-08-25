@@ -9,7 +9,7 @@ import json
 import os
 from typing import Callable, Awaitable
 
-from tavily import TavilyClient
+from tavily import AsyncTavilyClient
 
 
 # ---------------------------------------------------------------------------
@@ -35,6 +35,21 @@ async def _emit(label: str, tool: str):
 # Web search (via Tavily)
 # ---------------------------------------------------------------------------
 
+# Reused across calls so we don't rebuild an HTTP client (and its connection
+# pool) on every search. Created lazily on first use.
+_tavily_client: AsyncTavilyClient | None = None
+
+
+def _get_tavily_client() -> AsyncTavilyClient | None:
+    global _tavily_client
+    if _tavily_client is None:
+        api_key = os.environ.get("TAVILY_API_KEY", "")
+        if not api_key:
+            return None
+        _tavily_client = AsyncTavilyClient(api_key=api_key)
+    return _tavily_client
+
+
 async def web_search(query: str) -> str:
     """Search the web for up-to-date information on any topic.
 
@@ -46,11 +61,12 @@ async def web_search(query: str) -> str:
     """
     await _emit(f"Searching: {query}", "web_search")
 
-    api_key = os.environ.get("TAVILY_API_KEY", "")
-    if not api_key:
+    client = _get_tavily_client()
+    if client is None:
         return json.dumps({"error": "TAVILY_API_KEY not set"})
-    client = TavilyClient(api_key=api_key)
-    results = client.search(query, max_results=5)
+    # Async client: does not block the worker event loop while the HTTP
+    # request is in flight, so other concurrent runs keep streaming.
+    results = await client.search(query, max_results=5)
     result_list = results.get("results", [])
 
     # Stream each URL live to the frontend
