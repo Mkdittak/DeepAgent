@@ -13,8 +13,14 @@ export default function App() {
   const [runsOpen, setRunsOpen] = useState(false);
   const [pastRunCount, setPastRunCount] = useState(0);
 
-  // A run is active while any run in the session is still streaming.
-  const running = useStore((s) => s.order.some((id) => s.runs[id]?.state === "streaming"));
+  // Show Stop only while the current run is actively streaming AND a stream is
+  // connected. Keying off `connected` (same signal as the header dot) keeps the
+  // two consistent and prevents an old run left in "streaming" (a stream that
+  // closed without a terminal event) from pinning the composer in Stop.
+  const running = useStore((s) => {
+    const last = s.order[s.order.length - 1];
+    return s.connected && !!last && s.runs[last]?.state === "streaming";
+  });
 
   // Restore scrollback and resume any run that was mid-stream on last load.
   useEffect(() => {
