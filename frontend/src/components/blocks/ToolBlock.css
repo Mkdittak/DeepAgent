@@ -1,0 +1,79 @@
+.da-tool {
+  border: 1px solid var(--da-border);
+  border-radius: 10px;
+  background: var(--da-surface);
+  padding: 10px 12px;
+  margin: 6px 0;
+  font-size: 13px;
+}
+.da-tool.is-done { background: var(--da-surface-2); }
+.da-tool-head { display: flex; align-items: center; gap: 8px; }
+.da-tool-name { font-weight: 600; color: var(--da-fg); }
+.da-tool-dur { color: var(--da-fg-muted); font-size: 12px; }
+.da-tool-status {
+  margin-left: auto;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 7px;
+  border-radius: 999px;
+}
+.da-status-running { color: var(--da-accent); background: var(--da-accent-soft); }
+.da-status-done { color: var(--da-ok); background: var(--da-ok-soft); }
+.da-status-error { color: var(--da-err); background: var(--da-err-soft); }
+
+.da-tool-args {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--da-fg-muted);
+  overflow-x: auto;
+}
+.da-tool-args code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.da-tool-progress {
+  margin-top: 8px;
+  padding-left: 12px;
+  border-left: 2px solid var(--da-border);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.da-tool-progress-line { font-size: 12px; color: var(--da-fg-muted); word-break: break-word; }
+.da-tool-progress-line a { color: var(--da-accent); text-decoration: none; }
+.da-tool-progress-line a:hover { text-decoration: underline; }
+.da-tool-output { margin-top: 8px; }
+.da-tool-output-toggle {
+  background: none;
+  border: none;
+  color: var(--da-fg-muted);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0;
+  font-family: inherit;
+}
+.da-tool-output-toggle:hover { color: var(--da-fg); }
+.da-tool-output-body {
+  margin-top: 6px;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--da-fg);
+  background: var(--da-code-bg);
+  padding: 8px 10px;
+  border-radius: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.da-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--da-border);
+  border-top-color: var(--da-accent);
+  border-radius: 50%;
+  animation: da-spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes da-spin { to { transform: rotate(360deg); } }

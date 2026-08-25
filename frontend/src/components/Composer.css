@@ -1,0 +1,43 @@
+.da-composer {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+  padding: 12px 0 16px;
+  border-top: 1px solid var(--da-border);
+  flex-shrink: 0;
+}
+.da-input {
+  flex: 1;
+  padding: 11px 15px;
+  font-size: 15px;
+  font-family: inherit;
+  line-height: 1.5;
+  color: var(--da-fg);
+  background: var(--da-surface);
+  border: 1px solid var(--da-border);
+  border-radius: 12px;
+  resize: none;
+  outline: none;
+  min-height: 44px;
+  max-height: 160px;
+  transition: border-color 0.12s;
+}
+.da-input:focus { border-color: var(--da-accent); }
+.da-btn {
+  flex-shrink: 0;
+  height: 44px;
+  min-width: 84px;
+  padding: 0 20px;
+  font-size: 15px;
+  font-family: inherit;
+  font-weight: 600;
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.da-send { background: var(--da-accent); color: #fff; }
+.da-send:hover { background: var(--da-accent-strong); }
+.da-send:disabled { background: var(--da-border); color: var(--da-fg-muted); cursor: not-allowed; }
+.da-stop { background: var(--da-err); color: #fff; }
+.da-stop:hover { filter: brightness(0.94); }

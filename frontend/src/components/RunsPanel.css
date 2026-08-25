@@ -1,0 +1,60 @@
+.da-runs-panel {
+  border: 1px solid var(--da-border);
+  border-radius: 10px;
+  background: var(--da-surface);
+  padding: 10px 12px;
+  margin-top: 8px;
+  max-height: 200px;
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+.da-runs-empty { color: var(--da-fg-muted); font-size: 13px; margin: 4px 2px; }
+.da-run-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 2px;
+  border-bottom: 1px solid var(--da-border);
+}
+.da-run-item:last-child { border-bottom: none; }
+.da-run-meta { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
+.da-run-msg {
+  font-size: 13px;
+  color: var(--da-fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.da-run-tags { display: flex; gap: 6px; align-items: center; }
+.da-run-status { font-size: 11px; padding: 1px 7px; border-radius: 999px; }
+.da-run-status-done { color: var(--da-ok); background: var(--da-ok-soft); }
+.da-run-status-running { color: var(--da-accent); background: var(--da-accent-soft); }
+.da-run-status-error { color: var(--da-err); background: var(--da-err-soft); }
+.da-run-status-cancelled { color: var(--da-fg-muted); background: var(--da-surface-2); }
+.da-run-files { font-size: 11px; color: var(--da-ok); background: var(--da-ok-soft); padding: 1px 7px; border-radius: 999px; }
+.da-run-actions { display: flex; flex-wrap: wrap; gap: 6px; flex-shrink: 0; }
+.da-run-reconnect {
+  padding: 3px 10px;
+  font-size: 12px;
+  font-family: inherit;
+  color: var(--da-accent);
+  background: var(--da-surface);
+  border: 1px solid var(--da-accent);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.da-run-reconnect:hover { background: var(--da-accent-soft); }
+.da-run-dl {
+  padding: 3px 10px;
+  font-size: 12px;
+  background: var(--da-accent);
+  color: #fff;
+  border-radius: 6px;
+  text-decoration: none;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.da-run-dl:hover { background: var(--da-accent-strong); }

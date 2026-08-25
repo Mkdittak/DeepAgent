@@ -1,0 +1,17 @@
+.da-jump {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 96px;
+  padding: 7px 16px;
+  font-size: 13px;
+  font-family: inherit;
+  background: var(--da-fg);
+  color: var(--da-bg);
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.18);
+  z-index: 10;
+}
+.da-jump:hover { opacity: 0.9; }

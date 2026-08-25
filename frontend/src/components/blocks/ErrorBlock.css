@@ -1,0 +1,10 @@
+.da-error {
+  color: var(--da-err);
+  background: var(--da-err-soft);
+  border: 1px solid var(--da-err-border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin: 6px 0;
+  font-size: 14px;
+  word-break: break-word;
+}

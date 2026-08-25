@@ -1,0 +1,16 @@
+.da-turn { display: flex; flex-direction: column; }
+.da-turn-user { align-items: flex-end; }
+.da-user-bubble {
+  background: var(--da-accent);
+  color: #fff;
+  border-radius: 16px 16px 4px 16px;
+  padding: 10px 15px;
+  max-width: 80%;
+  font-size: 15px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.da-turn-assistant { align-items: stretch; gap: 2px; }
+.da-cancelled { color: var(--da-fg-muted); font-size: 13px; font-style: italic; padding: 4px 0; }
+.da-standalone-cursor { height: 1.05em; }
