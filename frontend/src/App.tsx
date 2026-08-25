@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Header } from "./components/Header";
-import { RunsPanel } from "./components/RunsPanel";
+import { Sidebar } from "./components/Sidebar";
 import { Conversation } from "./components/Conversation";
 import { Composer } from "./components/Composer";
 import { useStore, hydrate } from "./store/store";
@@ -8,21 +8,21 @@ import { submit, cancel, resumeOnLoad } from "./net/controller";
 import "./styles/global.css";
 import "./App.css";
 
+const isMobile = () =>
+  typeof window !== "undefined" && window.matchMedia("(max-width: 768px)").matches;
+
 export default function App() {
   const [input, setInput] = useState("");
-  const [runsOpen, setRunsOpen] = useState(false);
-  const [pastRunCount, setPastRunCount] = useState(0);
+  // Sidebar expanded on desktop, closed (drawer) on mobile by default.
+  const [sidebarOpen, setSidebarOpen] = useState(() => !isMobile());
 
-  // Show Stop only while the current run is actively streaming AND a stream is
-  // connected. Keying off `connected` (same signal as the header dot) keeps the
-  // two consistent and prevents an old run left in "streaming" (a stream that
-  // closed without a terminal event) from pinning the composer in Stop.
+  // Show Stop only while the current run is actively streaming AND connected —
+  // keeps the composer consistent with the header dot.
   const running = useStore((s) => {
     const last = s.order[s.order.length - 1];
     return s.connected && !!last && s.runs[last]?.state === "streaming";
   });
 
-  // Restore scrollback and resume any run that was mid-stream on last load.
   useEffect(() => {
     hydrate();
     resumeOnLoad();
@@ -39,22 +39,26 @@ export default function App() {
     void cancel();
   }, []);
 
+  // On mobile, selecting a thread / new chat closes the drawer.
+  const onNavigate = useCallback(() => {
+    if (isMobile()) setSidebarOpen(false);
+  }, []);
+
   return (
-    <div className="da-app">
-      <Header
-        runsOpen={runsOpen}
-        onToggleRuns={() => setRunsOpen((o) => !o)}
-        pastRunCount={pastRunCount}
-      />
-      <RunsPanel open={runsOpen} onCountChange={setPastRunCount} />
-      <Conversation onPickExample={setInput} />
-      <Composer
-        value={input}
-        onChange={setInput}
-        onSubmit={handleSubmit}
-        onStop={handleStop}
-        running={running}
-      />
+    <div className={`da-shell ${sidebarOpen ? "sidebar-open" : "sidebar-collapsed"}`}>
+      <Sidebar open={sidebarOpen} onNavigate={onNavigate} />
+      <div className="da-backdrop" onClick={() => setSidebarOpen(false)} />
+      <div className="da-main">
+        <Header onToggleSidebar={() => setSidebarOpen((o) => !o)} />
+        <Conversation onPickExample={setInput} />
+        <Composer
+          value={input}
+          onChange={setInput}
+          onSubmit={handleSubmit}
+          onStop={handleStop}
+          running={running}
+        />
+      </div>
     </div>
   );
 }

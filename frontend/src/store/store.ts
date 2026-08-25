@@ -92,6 +92,11 @@ export function setThreadId(id: string | null) {
   setState({ ...state, threadId: id });
 }
 
+// Clear the visible conversation (New chat, or before loading another thread).
+export function reset() {
+  setState({ ...state, order: [], runs: {}, threadId: null });
+}
+
 export function setConnected(c: boolean) {
   if (state.connected === c) return;
   setState({ ...state, connected: c });

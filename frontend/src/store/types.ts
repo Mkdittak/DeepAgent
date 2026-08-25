@@ -80,3 +80,19 @@ export interface RunSummary {
   status?: string;
   mtime?: number; // epoch seconds (dir mtime); 0 when unknown
 }
+
+export interface ThreadSummary {
+  thread_id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  run_count: number;
+}
+
+export interface ThreadDetail {
+  thread_id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  runs: { run_id: string; status: string; created_at: string }[];
+}

@@ -1,34 +1,37 @@
 .da-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 14px 0 12px;
+  gap: 10px;
+  padding: 12px 0 12px;
   border-bottom: 1px solid var(--da-border);
   flex-shrink: 0;
 }
-.da-header-left { display: flex; align-items: center; gap: 9px; }
-.da-logo { font-size: 17px; font-weight: 700; letter-spacing: -0.01em; color: var(--da-fg); }
+.da-logo { font-size: 16px; font-weight: 700; letter-spacing: -0.01em; color: var(--da-fg); }
 .da-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--da-border); }
 .da-dot.is-on { background: var(--da-ok); box-shadow: 0 0 0 3px var(--da-ok-soft); }
-.da-runs-btn {
-  display: flex;
+
+.da-menu-btn {
+  display: inline-flex;
   align-items: center;
-  gap: 7px;
-  padding: 6px 13px;
-  font-size: 13px;
-  font-family: inherit;
-  color: var(--da-fg);
-  background: var(--da-surface);
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: none;
   border: 1px solid var(--da-border);
   border-radius: 8px;
   cursor: pointer;
 }
-.da-runs-btn:hover { background: var(--da-surface-2); }
-.da-runs-badge {
-  background: var(--da-accent);
-  color: #fff;
-  font-size: 11px;
-  font-weight: 700;
-  padding: 1px 6px;
-  border-radius: 999px;
+.da-menu-btn:hover { background: var(--da-surface-2); }
+.da-menu-icon,
+.da-menu-icon::before,
+.da-menu-icon::after {
+  display: block;
+  width: 16px;
+  height: 2px;
+  background: var(--da-fg);
+  border-radius: 2px;
+  position: relative;
 }
+.da-menu-icon::before { content: ""; position: absolute; top: -5px; }
+.da-menu-icon::after { content: ""; position: absolute; top: 5px; }

@@ -1,0 +1,70 @@
+.da-sidebar {
+  width: 264px;
+  flex-shrink: 0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 10px;
+  background: var(--da-surface);
+  border-right: 1px solid var(--da-border);
+  overflow: hidden;
+  transition: width 0.16s ease, transform 0.16s ease;
+}
+.da-sidebar.is-closed { width: 0; padding-left: 0; padding-right: 0; border-right: none; }
+
+.da-newchat {
+  flex-shrink: 0;
+  padding: 10px 14px;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: inherit;
+  text-align: left;
+  color: var(--da-fg);
+  background: var(--da-bg);
+  border: 1px solid var(--da-border);
+  border-radius: 10px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.da-newchat:hover { background: var(--da-surface-2); border-color: var(--da-fg-muted); }
+
+.da-thread-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+.da-thread-list::-webkit-scrollbar { width: 7px; }
+.da-thread-list::-webkit-scrollbar-thumb { background: var(--da-border); border-radius: 4px; }
+.da-thread-empty { color: var(--da-fg-muted); font-size: 13px; padding: 8px 10px; }
+
+.da-thread-section { margin-top: 8px; }
+.da-section-head {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--da-fg-muted);
+  padding: 6px 10px 4px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.da-section-head.is-collapsible { cursor: pointer; user-select: none; }
+.da-section-head.is-collapsible:hover { color: var(--da-fg); }
+.da-section-count { font-weight: 600; }
+
+.da-thread {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  font-size: 13.5px;
+  font-family: inherit;
+  color: var(--da-fg);
+  background: none;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.da-thread:hover { background: var(--da-surface-2); }
+.da-thread.is-active { background: var(--da-accent-soft); color: var(--da-accent); font-weight: 550; }

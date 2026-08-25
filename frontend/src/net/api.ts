@@ -1,4 +1,4 @@
-import type { RunSummary } from "../store/types";
+import type { RunSummary, ThreadSummary, ThreadDetail } from "../store/types";
 
 // API origin. Configurable via VITE_API_BASE so the app isn't pinned to the
 // build machine: set it to "" for same-origin (relative URLs behind a reverse
@@ -33,4 +33,16 @@ export async function listRuns(): Promise<RunSummary[]> {
 
 export function artifactUrl(runId: string, filename: string): string {
   return `${API_BASE}/artifacts/${encodeURIComponent(runId)}/${encodeURIComponent(filename)}`;
+}
+
+export async function listThreads(): Promise<ThreadSummary[]> {
+  const res = await fetch(`${API_BASE}/threads`);
+  if (!res.ok) return [];
+  return res.json();
+}
+
+export async function getThread(threadId: string): Promise<ThreadDetail | null> {
+  const res = await fetch(`${API_BASE}/threads/${encodeURIComponent(threadId)}`);
+  if (!res.ok) return null;
+  return res.json();
 }

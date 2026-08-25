@@ -1,8 +1,50 @@
-.da-app {
+.da-shell {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* Main column keeps its own reading measure, centered in the space the
+   sidebar leaves — so collapsing the sidebar doesn't stretch the text. */
+.da-main {
+  flex: 1;
+  min-width: 0;
+  height: 100vh;
   display: flex;
   flex-direction: column;
-  height: 100vh;
-  max-width: 760px;
-  margin: 0 auto;
+  align-items: center;
   padding: 0 24px;
+}
+.da-main > * {
+  width: 100%;
+  max-width: 760px;
+}
+
+.da-backdrop { display: none; }
+
+/* Mobile: sidebar becomes an off-canvas drawer with a backdrop. */
+@media (max-width: 768px) {
+  .da-sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 30;
+    box-shadow: 2px 0 16px rgba(0, 0, 0, 0.18);
+  }
+  .da-sidebar.is-open {
+    width: 264px;
+    padding: 12px 10px;
+    transform: translateX(0);
+    border-right: 1px solid var(--da-border);
+  }
+  .da-sidebar.is-closed {
+    transform: translateX(-100%);
+  }
+  .da-shell.sidebar-open .da-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 20;
+    background: rgba(0, 0, 0, 0.4);
+  }
 }
