@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from typing import Awaitable, Callable, Optional
 
 ProgressCallback = Callable[[str, str], Awaitable[None]]
+FileCallback = Callable[[str], Awaitable[None]]
 
 
 @dataclass
@@ -27,6 +28,7 @@ class RunContext:
     run_id: str
     artifact_dir: str
     progress_cb: Optional[ProgressCallback] = None
+    file_cb: Optional[FileCallback] = None  # emits file.created at write time
     thread_id: Optional[str] = None  # set by the memory step (M0)
 
 

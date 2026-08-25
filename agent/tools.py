@@ -24,6 +24,13 @@ async def _emit(label: str, tool: str):
         await ctx.progress_cb(label, tool)
 
 
+async def _emit_file(filename: str):
+    """Signal that a file was created, at write time (file.created event)."""
+    ctx = get_run_context()
+    if ctx is not None and ctx.file_cb is not None:
+        await ctx.file_cb(filename)
+
+
 def _artifact_dir() -> str:
     """Directory this run writes artifacts to."""
     ctx = get_run_context()
@@ -162,6 +169,7 @@ async def generate_pptx(title: str, slides: list[dict]) -> str:
     os.makedirs(output_dir, exist_ok=True)
     path = os.path.join(output_dir, "presentation.pptx")
     prs.save(path)
+    await _emit_file(os.path.basename(path))
     return f"Saved presentation to {path}"
 
 
@@ -203,6 +211,7 @@ async def generate_xlsx(title: str, headers: list[str], rows: list[list]) -> str
     os.makedirs(output_dir, exist_ok=True)
     path = os.path.join(output_dir, "results.xlsx")
     wb.save(path)
+    await _emit_file(os.path.basename(path))
     return f"Saved spreadsheet to {path}"
 
 
@@ -244,4 +253,5 @@ async def generate_html(title: str, body_html: str) -> str:
     path = os.path.join(output_dir, "index.html")
     with open(path, "w", encoding="utf-8") as f:
         f.write(html)
+    await _emit_file(os.path.basename(path))
     return f"Saved landing page to {path}"

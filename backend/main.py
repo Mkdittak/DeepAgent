@@ -21,9 +21,10 @@ logger = logging.getLogger(__name__)
 from dotenv import load_dotenv
 load_dotenv()
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from pydantic import BaseModel
 from temporalio.client import Client
 from temporalio.contrib.workflow_streams import WorkflowStreamClient
 from temporalio.service import RPCError
@@ -204,6 +205,144 @@ async def list_runs():
         })
     runs.sort(key=lambda r: r["mtime"], reverse=True)
     return runs
+
+
+# ---------------------------------------------------------------------------
+# v1 event envelope + REST/SSE transport (frontend rewrite)
+# ---------------------------------------------------------------------------
+
+class StartRunBody(BaseModel):
+    message: str
+    thread_id: str | None = None
+
+
+def _v1_envelope(offset: int, evt: AgentProgress, run_id: str) -> dict:
+    """Map an internal AgentProgress to the versioned, discriminated v1 event.
+
+    Identity fields user_id/org_id are present but null until Mandate 2 —
+    reserved now so stored events and emitters never need a later migration.
+    """
+    base = {
+        "v": 1,
+        "run_id": run_id,
+        "offset": offset,
+        "ts": evt.ts,
+        "user_id": None,
+        "org_id": None,
+    }
+    t = evt.type
+    if t == "run_start":
+        base.update(type="run.started", prompt=evt.label)
+    elif t == "llm_token":
+        base.update(type="text.delta", text=evt.label)
+    elif t == "tool_start":
+        base.update(type="tool.started", step_id=evt.step_id, name=evt.tool, args=evt.args)
+    elif t == "tool_progress":
+        base.update(type="tool.progress", step_id=evt.step_id, tool=evt.tool, message=evt.label)
+    elif t == "tool_end":
+        base.update(type="tool.finished", step_id=evt.step_id, name=evt.tool,
+                    status="done", output_preview=evt.output_preview, duration_ms=evt.duration_ms)
+    elif t == "plan":
+        base.update(type="plan.snapshot", todos=evt.todos or [])
+    elif t in ("file", "artifact"):
+        fname = evt.artifacts[0] if evt.artifacts else ""
+        base.update(type="file.created", filename=fname, url=f"/artifacts/{run_id}/{fname}")
+    elif t == "error":
+        base.update(type="run.error", message=evt.label)
+    elif t == "cancelled":
+        base.update(type="run.finished", state="cancelled")
+    elif t == "done":
+        base.update(type="run.finished", state="done", summary=evt.label, artifacts=evt.artifacts)
+    else:
+        base.update(type=t, label=evt.label)
+    return base
+
+
+async def _start_agent_run(client: Client, user_message: str, requested_thread: str | None):
+    """Start a new agent workflow. Returns (run_id, workflow_id, thread_id).
+
+    thread_id is server-generated and unguessable; a client may continue a
+    conversation only by echoing a previously-issued id (validated), never by
+    supplying an arbitrary one.
+    """
+    run_id = _make_run_id(user_message)
+    workflow_id = f"agent-{run_id}"
+    known_threads = {
+        info.get("thread_id") for info in run_registry.values() if info.get("thread_id")
+    }
+    thread_id = requested_thread if requested_thread in known_threads else uuid.uuid4().hex
+    run_registry[run_id] = {
+        "workflow_id": workflow_id,
+        "user_message": user_message,
+        "status": "running",
+        "thread_id": thread_id,
+    }
+    _save_registry()
+    await client.start_workflow(
+        AgentWorkflow.run,
+        WorkflowInput(run_id=run_id, user_message=user_message, thread_id=thread_id),
+        id=workflow_id,
+        task_queue=TASK_QUEUE,
+    )
+    return run_id, workflow_id, thread_id
+
+
+@app.post("/runs")
+async def create_run(body: StartRunBody):
+    client = await get_temporal_client()
+    run_id, workflow_id, thread_id = await _start_agent_run(
+        client, body.message, body.thread_id
+    )
+    return {"run_id": run_id, "workflow_id": workflow_id, "thread_id": thread_id}
+
+
+@app.post("/runs/{run_id}/cancel")
+async def cancel_run(run_id: str):
+    if run_id not in run_registry:
+        return JSONResponse({"error": "unknown run"}, status_code=404)
+    client = await get_temporal_client()
+    handle = client.get_workflow_handle(run_registry[run_id]["workflow_id"])
+    try:
+        await handle.cancel()
+    except RPCError as e:
+        return JSONResponse({"error": f"cancel failed: {e}"}, status_code=500)
+    return {"status": "cancel_requested", "run_id": run_id}
+
+
+@app.get("/runs/{run_id}/stream")
+async def stream_run(run_id: str, request: Request):
+    """SSE stream of v1 events. id: = offset; Last-Event-ID resumes at offset+1,
+    so a refresh mid-run replays nothing already seen."""
+    if run_id not in run_registry:
+        return JSONResponse({"error": "unknown run"}, status_code=404)
+    client = await get_temporal_client()
+    workflow_id = run_registry[run_id]["workflow_id"]
+    last_id = request.headers.get("last-event-id")
+    from_offset = (int(last_id) + 1) if last_id and last_id.lstrip("-").isdigit() else 0
+
+    async def event_gen():
+        stream_client = WorkflowStreamClient.create(client, workflow_id=workflow_id)
+        progress_topic = stream_client.topic("progress", type=AgentProgress)
+        async with stream_client:
+            async for item in progress_topic.subscribe(from_offset=from_offset):
+                evt: AgentProgress = item.data
+                env = _v1_envelope(item.offset, evt, run_id)
+                if evt.type in TERMINAL_EVENT_TYPES and run_id in run_registry:
+                    run_registry[run_id]["status"] = evt.type
+                    _save_registry()
+                yield f"id: {item.offset}\ndata: {json.dumps(env)}\n\n"
+                if evt.type in TERMINAL_EVENT_TYPES:
+                    break
+
+    return StreamingResponse(
+        event_gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 # ---------------------------------------------------------------------------

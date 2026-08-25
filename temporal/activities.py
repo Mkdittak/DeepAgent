@@ -45,6 +45,7 @@ class AgentProgress:
     output_preview: str | None = None     # truncated to 500 chars
     duration_ms: int | None = None        # set on tool_end
     artifacts: list[str] = field(default_factory=list)
+    todos: list[dict] | None = None       # structured plan.snapshot (write_todos)
 
 
 # ---------------------------------------------------------------------------
@@ -147,6 +148,7 @@ async def run_deep_agent(input: AgentInput) -> str:
 
         # Track tool timings: run_id -> monotonic start time
         tool_timers: dict[str, float] = {}
+        plan_step_ids: set[str] = set()  # write_todos steps shown as plan, not tool
         final_response = ""
         # Coalesce llm_token events: batch text before publishing
         token_buffer = ""
@@ -164,12 +166,22 @@ async def run_deep_agent(input: AgentInput) -> str:
                 tool=tool_name,
             ))
 
+        # Emit file.created at write time (tools call this as they save files).
+        async def _on_file(filename: str):
+            progress.publish(AgentProgress(
+                seq=next_seq(), ts=_now_iso(), run_id=input.run_id,
+                type="file",
+                label=f"Created: {filename}",
+                artifacts=[filename],
+            ))
+
         # Bind this run's context to the current task. Isolated per activity —
         # concurrent runs no longer share ARTIFACT_DIR or the progress callback.
         set_run_context(RunContext(
             run_id=input.run_id,
             artifact_dir=artifact_dir,
             progress_cb=_on_tool_progress,
+            file_cb=_on_file,
             thread_id=input.thread_id,
         ))
 
@@ -217,37 +229,54 @@ async def run_deep_agent(input: AgentInput) -> str:
                     tool_name = name
                     raw_args = data.get("input", {})
                     args = _redact(raw_args) if isinstance(raw_args, dict) else {}
-                    tool_timers[run_id] = time.monotonic()
-                    progress.publish(AgentProgress(
-                        seq=next_seq(), ts=_now_iso(), run_id=input.run_id,
-                        type="tool_start",
-                        label=f"Using tool: {tool_name}",
-                        step_id=run_id,
-                        tool=tool_name,
-                        args=args,
-                    ))
+                    # write_todos is the plan tool — emit a structured
+                    # plan.snapshot instead of a generic tool block, and record
+                    # the step id so its tool_end is suppressed too.
+                    if tool_name == "write_todos":
+                        todos = raw_args.get("todos", []) if isinstance(raw_args, dict) else []
+                        plan_step_ids.add(run_id)
+                        progress.publish(AgentProgress(
+                            seq=next_seq(), ts=_now_iso(), run_id=input.run_id,
+                            type="plan",
+                            label="Updated plan",
+                            todos=todos if isinstance(todos, list) else [],
+                        ))
+                    else:
+                        tool_timers[run_id] = time.monotonic()
+                        progress.publish(AgentProgress(
+                            seq=next_seq(), ts=_now_iso(), run_id=input.run_id,
+                            type="tool_start",
+                            label=f"Using tool: {tool_name}",
+                            step_id=run_id,
+                            tool=tool_name,
+                            args=args,
+                        ))
 
                 # --- tool_end ---
                 elif event_type == "on_tool_end":
-                    tool_name = name
-                    output = data.get("output", "")
-                    if hasattr(output, "content"):
-                        output = output.content
-                    output_str = str(output) if output else ""
-                    preview = output_str[:500] if output_str else None
+                    # write_todos was surfaced as a plan.snapshot, not a tool.
+                    if run_id in plan_step_ids:
+                        plan_step_ids.discard(run_id)
+                    else:
+                        tool_name = name
+                        output = data.get("output", "")
+                        if hasattr(output, "content"):
+                            output = output.content
+                        output_str = str(output) if output else ""
+                        preview = output_str[:500] if output_str else None
 
-                    start_time = tool_timers.pop(run_id, None)
-                    duration = int((time.monotonic() - start_time) * 1000) if start_time else None
+                        start_time = tool_timers.pop(run_id, None)
+                        duration = int((time.monotonic() - start_time) * 1000) if start_time else None
 
-                    progress.publish(AgentProgress(
-                        seq=next_seq(), ts=_now_iso(), run_id=input.run_id,
-                        type="tool_end",
-                        label=f"Finished: {tool_name}",
-                        step_id=run_id,
-                        tool=tool_name,
-                        output_preview=preview,
-                        duration_ms=duration,
-                    ))
+                        progress.publish(AgentProgress(
+                            seq=next_seq(), ts=_now_iso(), run_id=input.run_id,
+                            type="tool_end",
+                            label=f"Finished: {tool_name}",
+                            step_id=run_id,
+                            tool=tool_name,
+                            output_preview=preview,
+                            duration_ms=duration,
+                        ))
 
                 # --- tool_progress (custom events from inside tools) ---
                 elif event_type == "on_custom_event":
@@ -264,15 +293,8 @@ async def run_deep_agent(input: AgentInput) -> str:
                             tool=tool_name,
                         ))
 
-                # --- plan (todo list updates) ---
-                elif event_type == "on_chain_end" and "todo" in name.lower():
-                    output = data.get("output", "")
-                    label = str(output)[:500] if output else "Updated plan"
-                    progress.publish(AgentProgress(
-                        seq=next_seq(), ts=_now_iso(), run_id=input.run_id,
-                        type="plan",
-                        label=label,
-                    ))
+                # (Plan snapshots are emitted from the write_todos tool_start
+                # above, with structured todos — no string-dump chain handler.)
 
             # Flush any remaining tokens
             flush_tokens()
