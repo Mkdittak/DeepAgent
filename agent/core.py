@@ -3,6 +3,7 @@ Core Deep Agent setup — one general-purpose agent with broad capabilities.
 """
 
 from deepagents import create_deep_agent
+from langchain.agents.middleware import TodoListMiddleware
 
 from agent.tools import web_search, generate_pptx, generate_xlsx, generate_html
 
@@ -47,6 +48,10 @@ def create_agent(checkpointer=None):
             generate_html,
         ],
         checkpointer=checkpointer,
-        # Built-in tools (write_todos, filesystem, execute, task) are included
-        # automatically by Deep Agents.
+        # deepagents 0.7.8 no longer wires TodoListMiddleware automatically, so
+        # add it explicitly — this is what provides the `write_todos` tool that
+        # drives the plan.snapshot events / PlanBlock (headline of Mandate 1).
+        middleware=[TodoListMiddleware()],
+        # Other built-ins (filesystem, execute, task) are still included by
+        # Deep Agents automatically.
     )
