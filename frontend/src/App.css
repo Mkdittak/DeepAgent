@@ -4,20 +4,16 @@
   overflow: hidden;
 }
 
-/* Main column keeps its own reading measure, centered in the space the
-   sidebar leaves — so collapsing the sidebar doesn't stretch the text. */
+/* Main fills all remaining width with its own edge-to-edge background; the
+   reading measure is applied per-block inside (prose centered, artifacts/code/
+   tables break out to the full column). */
 .da-main {
   flex: 1;
   min-width: 0;
   height: 100vh;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  padding: 0 24px;
-}
-.da-main > * {
-  width: 100%;
-  max-width: 760px;
+  background: var(--da-bg);
 }
 
 .da-backdrop { display: none; }

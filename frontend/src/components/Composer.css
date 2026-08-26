@@ -2,7 +2,11 @@
   display: flex;
   gap: 8px;
   align-items: flex-end;
-  padding: 12px 0 16px;
+  width: 100%;
+  /* +64 so the 32px padding lands the input on the same measure as the blocks */
+  max-width: calc(min(var(--measure), 100%) + 64px);
+  margin-inline: auto;
+  padding: 12px 32px 16px;
   border-top: 1px solid var(--da-border);
   flex-shrink: 0;
 }

@@ -1,4 +1,5 @@
 :root {
+  --measure: 900px; /* prose reading measure; blocks break out past it */
   --da-bg: #ffffff;
   --da-fg: #1a1a1a;
   --da-fg-muted: #6b7280;
