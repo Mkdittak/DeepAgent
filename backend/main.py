@@ -232,7 +232,7 @@ async def health():
 # ---------------------------------------------------------------------------
 
 @app.get("/artifacts/{run_id}/{filename}")
-async def download_artifact(run_id: str, filename: str):
+async def download_artifact(run_id: str, filename: str, request: Request):
     # Resolve the requested path and confirm it stays inside ARTIFACT_BASE.
     # Guards against traversal via URL-encoded segments (e.g. run_id="..",
     # filename=".env"), which would otherwise escape to the project root.
@@ -242,12 +242,16 @@ async def download_artifact(run_id: str, filename: str):
         return JSONResponse({"error": "not found"}, status_code=404)
     if not os.path.isfile(path):
         return JSONResponse({"error": "not found"}, status_code=404)
-    # Serve HTML/HTM inline so browsers render them instead of downloading
     ext = os.path.splitext(filename)[1].lower()
-    if ext in (".html", ".htm"):
+    want_download = request.query_params.get("download") in ("1", "true", "yes")
+    # HTML/HTM is served INLINE (the sandboxed iframe needs it) UNLESS the caller
+    # asks for a download — the Download button uses ?download=1 so it forces a
+    # save instead of a top-level render of agent HTML at the API origin.
+    if ext in (".html", ".htm") and not want_download:
         with open(path, "r", encoding="utf-8") as f:
             from fastapi.responses import HTMLResponse
             return HTMLResponse(f.read())
+    # FileResponse(filename=...) sets Content-Disposition: attachment.
     return FileResponse(path, filename=filename)
 
 

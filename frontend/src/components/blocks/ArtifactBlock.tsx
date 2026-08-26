@@ -37,6 +37,9 @@ function fullUrl(url: string): string {
 function ArtifactBlockImpl({ block }: Props) {
   const e = ext(block.filename);
   const url = fullUrl(block.url);
+  // ?download=1 forces Content-Disposition: attachment so an .html artifact
+  // downloads instead of rendering top-level at the API origin.
+  const downloadUrl = `${url}?download=1`;
   const isHtml = e === ".html" || e === ".htm";
 
   const [expanded, setExpanded] = useState(false);
@@ -86,7 +89,7 @@ function ArtifactBlockImpl({ block }: Props) {
             Expand
           </button>
         )}
-        <a className="da-artifact-dl" href={url} download target="_blank" rel="noopener noreferrer">
+        <a className="da-artifact-dl" href={downloadUrl} download>
           Download
         </a>
       </div>
@@ -97,7 +100,7 @@ function ArtifactBlockImpl({ block }: Props) {
           <div className="da-overlay-panel" onClick={(ev) => ev.stopPropagation()}>
             <div className="da-overlay-head">
               <span className="da-overlay-name">{block.filename}</span>
-              <a className="da-overlay-dl" href={url} download target="_blank" rel="noopener noreferrer">
+              <a className="da-overlay-dl" href={downloadUrl} download>
                 Download
               </a>
               <button ref={closeRef} className="da-overlay-close" onClick={() => setExpanded(false)}>
