@@ -1,11 +1,44 @@
 .da-artifact { margin: 8px 0; }
+
+/* Inline preview is a clickable button; the iframe inside is a non-interactive
+   preview (pointer-events off) so a click anywhere expands it. */
 .da-artifact-preview {
+  display: block;
+  position: relative;
+  width: 100%;
+  padding: 0;
   border: 1px solid var(--da-border);
   border-radius: 10px 10px 0 0;
   overflow: hidden;
   background: #fff;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
 }
-.da-artifact-preview iframe { display: block; width: 100%; height: 380px; border: none; }
+.da-artifact-preview iframe {
+  display: block;
+  width: 100%;
+  height: 480px;
+  border: none;
+  pointer-events: none;
+}
+.da-artifact-expand-hint {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.6);
+  padding: 5px 11px;
+  border-radius: 999px;
+  opacity: 0;
+  transition: opacity 0.15s;
+  pointer-events: none;
+}
+.da-artifact-preview:hover .da-artifact-expand-hint,
+.da-artifact-preview:focus-visible .da-artifact-expand-hint { opacity: 1; }
+
 .da-artifact-card {
   display: flex;
   align-items: center;
@@ -27,6 +60,18 @@
   white-space: nowrap;
 }
 .da-artifact-type { font-size: 12px; color: var(--da-fg-muted); }
+.da-artifact-expand-btn {
+  flex-shrink: 0;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--da-fg);
+  background: var(--da-bg);
+  border: 1px solid var(--da-border);
+  border-radius: 7px;
+  cursor: pointer;
+}
+.da-artifact-expand-btn:hover { background: var(--da-surface-2); }
 .da-artifact-dl {
   flex-shrink: 0;
   padding: 6px 14px;
@@ -37,3 +82,71 @@
   text-decoration: none;
 }
 .da-artifact-dl:hover { background: var(--da-accent-strong); }
+
+/* ---- Full-viewport expand overlay ---- */
+.da-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.da-overlay-panel {
+  width: min(1400px, 96vw);
+  height: 94vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--da-bg);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.4);
+}
+.da-overlay-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--da-border);
+  background: var(--da-surface);
+  flex-shrink: 0;
+}
+.da-overlay-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--da-fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.da-overlay-dl {
+  flex-shrink: 0;
+  font-size: 13px;
+  color: var(--da-accent);
+  text-decoration: none;
+  padding: 6px 10px;
+}
+.da-overlay-dl:hover { text-decoration: underline; }
+.da-overlay-close {
+  flex-shrink: 0;
+  padding: 9px 20px;
+  font-size: 14px;
+  font-weight: 700;
+  font-family: inherit;
+  color: #fff;
+  background: var(--da-accent);
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.da-overlay-close:hover { background: var(--da-accent-strong); }
+.da-overlay-iframe {
+  flex: 1;
+  width: 100%;
+  border: none;
+  background: #fff;
+}
