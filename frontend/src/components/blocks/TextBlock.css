@@ -22,9 +22,9 @@
 .da-text > .da-cursor { margin-top: 0; }
 
 .da-text h1, .da-text h2, .da-text h3 { line-height: 1.3; font-weight: 650; }
-.da-text h1 { font-size: 1.4em; }
-.da-text h2 { font-size: 1.25em; }
-.da-text h3 { font-size: 1.1em; }
+.da-text h1 { font-size: var(--fs-h1); }
+.da-text h2 { font-size: var(--fs-h2); }
+.da-text h3 { font-size: var(--fs-h3); }
 .da-text ul, .da-text ol { padding-left: 1.4em; }
 .da-text li { margin: 0.2em 0; }
 .da-text code {

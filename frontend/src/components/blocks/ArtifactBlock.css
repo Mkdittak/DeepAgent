@@ -14,6 +14,7 @@
   cursor: pointer;
   font: inherit;
   text-align: left;
+  box-shadow: var(--da-shadow);
 }
 .da-artifact-preview iframe {
   display: block;
@@ -47,8 +48,9 @@
   border: 1px solid var(--da-border);
   border-radius: 10px;
   background: var(--da-surface);
+  box-shadow: var(--da-shadow);
 }
-.da-artifact-preview + .da-artifact-card { border-radius: 0 0 10px 10px; border-top: none; }
+.da-artifact-preview + .da-artifact-card { border-radius: 0 0 10px 10px; border-top: none; box-shadow: none; }
 .da-artifact-icon { font-size: 22px; line-height: 1; flex-shrink: 0; }
 .da-artifact-info { display: flex; flex-direction: column; min-width: 0; flex: 1; }
 .da-artifact-name {
@@ -76,12 +78,13 @@
   flex-shrink: 0;
   padding: 6px 14px;
   font-size: 13px;
-  background: var(--da-accent);
-  color: #fff;
+  background: var(--da-bg);
+  color: var(--da-fg);
+  border: 1px solid var(--da-border);
   border-radius: 7px;
   text-decoration: none;
 }
-.da-artifact-dl:hover { background: var(--da-accent-strong); }
+.da-artifact-dl:hover { background: var(--da-surface-2); }
 
 /* ---- Full-viewport expand overlay ---- */
 .da-overlay {
@@ -126,11 +129,11 @@
 .da-overlay-dl {
   flex-shrink: 0;
   font-size: 13px;
-  color: var(--da-accent);
+  color: var(--da-fg-muted);
   text-decoration: none;
   padding: 6px 10px;
 }
-.da-overlay-dl:hover { text-decoration: underline; }
+.da-overlay-dl:hover { color: var(--da-fg); text-decoration: underline; }
 .da-overlay-close {
   flex-shrink: 0;
   padding: 9px 20px;

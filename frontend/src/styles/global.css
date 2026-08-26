@@ -1,12 +1,26 @@
 :root {
   --measure: 900px; /* prose reading measure; blocks break out past it */
+
+  /* Type scale (system stack; sizes only) */
+  --fs-xs: 12px;
+  --fs-sm: 13px;
+  --fs-base: 15px;
+  --fs-lg: 17px;
+  --fs-h3: 18px;
+  --fs-h2: 21px;
+  --fs-h1: 26px;
+
+  /* Neutrals: cool "slate" scale, slight hue bias toward the blue accent */
   --da-bg: #ffffff;
-  --da-fg: #1a1a1a;
-  --da-fg-muted: #6b7280;
-  --da-surface: #f9fafb;
-  --da-surface-2: #f3f4f6;
-  --da-border: #e5e7eb;
-  --da-code-bg: #f3f4f6;
+  --da-fg: #0f172a;
+  --da-fg-muted: #64748b;
+  --da-surface: #f8fafc;
+  --da-surface-2: #f1f5f9;
+  --da-border: #e2e8f0;
+  --da-code-bg: #f1f5f9;
+  --da-user-bubble: #f1f5f9; /* neutral surface tint, not the accent */
+  --da-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+
   --da-accent: #2563eb;
   --da-accent-strong: #1d4ed8;
   --da-accent-soft: #eff6ff;
@@ -16,22 +30,25 @@
   --da-err-soft: #fef2f2;
   --da-err-border: #fecaca;
   --da-plan-fg: #0369a1;
-  --da-plan-bg: #f0f9ff;
-  --da-plan-border: #bae6fd;
+  --da-plan-bg: #eff6ff;
+  --da-plan-border: #bcd7fb;
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --da-bg: #0f1115;
-    --da-fg: #e8eaed;
-    --da-fg-muted: #9aa0a6;
-    --da-surface: #1a1d23;
-    --da-surface-2: #22262e;
-    --da-border: #2c313a;
-    --da-code-bg: #1c2029;
-    --da-accent: #4f8cff;
-    --da-accent-strong: #6ba0ff;
-    --da-accent-soft: #17233d;
+    --da-bg: #0f141c;
+    --da-fg: #e2e8f0;
+    --da-fg-muted: #94a3b8;
+    --da-surface: #172032;
+    --da-surface-2: #1e293b;
+    --da-border: #2b3a4f;
+    --da-code-bg: #172032;
+    --da-user-bubble: #1e293b;
+    --da-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+
+    --da-accent: #5b8cff;
+    --da-accent-strong: #7aa2ff;
+    --da-accent-soft: #18243c;
     --da-ok: #4ade80;
     --da-ok-soft: #12281a;
     --da-err: #f87171;
@@ -50,6 +67,6 @@ body {
   background: var(--da-bg);
   color: var(--da-fg);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  font-size: 15px;
+  font-size: var(--fs-base);
   -webkit-font-smoothing: antialiased;
 }

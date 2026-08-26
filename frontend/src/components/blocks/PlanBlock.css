@@ -1,9 +1,11 @@
+/* Primary: tinted panel that lifts off the page as the run's headline. */
 .da-plan {
   border: 1px solid var(--da-plan-border);
   background: var(--da-plan-bg);
   border-radius: 10px;
-  padding: 10px 14px;
-  margin: 6px 0;
+  padding: 12px 14px;
+  margin: 8px 0;
+  box-shadow: var(--da-shadow);
 }
 .da-plan-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
 .da-plan-title {

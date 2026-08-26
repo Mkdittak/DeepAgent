@@ -8,8 +8,8 @@
   margin-inline: auto;
 }
 .da-user-bubble {
-  background: var(--da-accent);
-  color: #fff;
+  background: var(--da-user-bubble);
+  color: var(--da-fg);
   border-radius: 16px 16px 4px 16px;
   padding: 10px 15px;
   max-width: 80%;
