@@ -39,7 +39,7 @@ def create_agent(checkpointer=None):
             conversation state per thread, giving multi-turn memory.
     """
     return create_deep_agent(
-        model="google_genai:gemini-3.5-flash",
+        model="google_genai:gemini-3.6-flash",
         system_prompt=SYSTEM_PROMPT,
         tools=[
             web_search,
