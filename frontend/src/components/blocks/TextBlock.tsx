@@ -1,5 +1,6 @@
 import { memo } from "react";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import rehypeSanitize from "rehype-sanitize";
 import type { Block } from "../../store/types";
 import "./TextBlock.css";
@@ -12,7 +13,7 @@ type Props = { block: Extract<Block, { kind: "text" }>; streaming: boolean };
 function TextBlockImpl({ block, streaming }: Props) {
   return (
     <div className="da-text">
-      <ReactMarkdown rehypePlugins={[rehypeSanitize]}>{block.text}</ReactMarkdown>
+      <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeSanitize]}>{block.text}</ReactMarkdown>
       {streaming && <span className="da-cursor" aria-hidden />}
     </div>
   );
