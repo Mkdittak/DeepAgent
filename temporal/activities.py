@@ -207,13 +207,15 @@ async def run_deep_agent(input: AgentInput) -> str:
             # files in ongoing threads. scripts/ are never seeded
             # (instruction-only v1).
             from agent.skills import seed_files, skill_index
+            from deepagents.backends.utils import create_file_data
             skill_seed = seed_files()
             skills_by_path = skill_index(skill_seed)
             skills_activated: set[str] = set()  # dedupe skill.activated per run
             async for ev in agent.astream_events(
                 {
                     "messages": [{"role": "user", "content": input.user_message}],
-                    "files": skill_seed,
+                    # The files channel holds FileData dicts, not raw strings.
+                    "files": {p: create_file_data(c) for p, c in skill_seed.items()},
                 },
                 version="v2",
                 config=_config,
