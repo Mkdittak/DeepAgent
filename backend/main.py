@@ -364,6 +364,11 @@ def _v1_envelope(offset: int, evt: AgentProgress, run_id: str) -> dict:
                     status="done", output_preview=evt.output_preview, duration_ms=evt.duration_ms)
     elif t == "plan":
         base.update(type="plan.snapshot", todos=evt.todos or [])
+    elif t == "skill":
+        info = evt.skill or {}
+        base.update(type="skill.activated", name=info.get("name", ""),
+                    tier=info.get("tier", ""), path=info.get("path", ""),
+                    description=info.get("description", ""))
     elif t in ("file", "artifact"):
         fname = evt.artifacts[0] if evt.artifacts else ""
         base.update(type="file.created", filename=fname, url=f"/artifacts/{run_id}/{fname}")

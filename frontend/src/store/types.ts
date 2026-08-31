@@ -29,6 +29,7 @@ export type V1Event = EnvelopeBase &
         duration_ms?: number;
       }
     | { type: "plan.snapshot"; todos: Todo[] }
+    | { type: "skill.activated"; name: string; tier: string; path: string; description: string }
     | { type: "file.created"; filename: string; url: string }
     | { type: "run.error"; message: string }
     | {
@@ -55,6 +56,7 @@ export type Block =
       durationMs?: number;
     }
   | { kind: "plan"; id: string; todos: Todo[] }
+  | { kind: "skill"; id: string; name: string; tier: string; description: string }
   | { kind: "artifact"; id: string; filename: string; url: string }
   | { kind: "error"; id: string; message: string };
 

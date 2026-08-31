@@ -232,6 +232,16 @@ function reduce(run: Run, ev: V1Event): Run {
       });
       break;
     }
+    case "skill.activated": {
+      turns = withAssistant(turns, (blocks) => {
+        if (blocks.some((b) => b.kind === "skill" && b.name === ev.name)) return blocks;
+        return [
+          ...blocks,
+          { kind: "skill", id: `s-${ev.offset}`, name: ev.name, tier: ev.tier, description: ev.description },
+        ];
+      });
+      break;
+    }
     case "file.created": {
       turns = withAssistant(turns, (blocks) => {
         if (blocks.some((b) => b.kind === "artifact" && b.filename === ev.filename)) return blocks;

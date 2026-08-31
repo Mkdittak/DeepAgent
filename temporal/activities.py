@@ -46,6 +46,7 @@ class AgentProgress:
     duration_ms: int | None = None        # set on tool_end
     artifacts: list[str] = field(default_factory=list)
     todos: list[dict] | None = None       # structured plan.snapshot (write_todos)
+    skill: dict | None = None             # skill.activated: {name, tier, path, description}
 
 
 # ---------------------------------------------------------------------------
@@ -203,11 +204,14 @@ async def run_deep_agent(input: AgentInput) -> str:
             # reads the `files` state channel). Re-seeded every run — the
             # channel's dict-merge reducer refreshes skill files in ongoing
             # threads. scripts/ are never seeded (instruction-only v1).
-            from agent.skills import builtin_seed_files
+            from agent.skills import builtin_seed_files, skill_index
+            skill_seed = builtin_seed_files()
+            skills_by_path = skill_index(skill_seed)
+            skills_activated: set[str] = set()  # dedupe skill.activated per run
             async for ev in agent.astream_events(
                 {
                     "messages": [{"role": "user", "content": input.user_message}],
-                    "files": builtin_seed_files(),
+                    "files": skill_seed,
                 },
                 version="v2",
                 config=_config,
@@ -250,6 +254,21 @@ async def run_deep_agent(input: AgentInput) -> str:
                             todos=todos if isinstance(todos, list) else [],
                         ))
                     else:
+                        # A read_file on a seeded SKILL.md is a skill
+                        # activation (progressive disclosure stage 2) — emit
+                        # skill.activated ahead of the tool block, once per
+                        # skill per run.
+                        if tool_name == "read_file" and isinstance(raw_args, dict):
+                            skill_path = str(raw_args.get("file_path", ""))
+                            info = skills_by_path.get(skill_path)
+                            if info and skill_path not in skills_activated:
+                                skills_activated.add(skill_path)
+                                progress.publish(AgentProgress(
+                                    seq=next_seq(), ts=_now_iso(), run_id=input.run_id,
+                                    type="skill",
+                                    label=f"Skill activated: {info['name']}",
+                                    skill={**info, "path": skill_path},
+                                ))
                         tool_timers[run_id] = time.monotonic()
                         progress.publish(AgentProgress(
                             seq=next_seq(), ts=_now_iso(), run_id=input.run_id,

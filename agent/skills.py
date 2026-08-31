@@ -21,7 +21,10 @@ execution is off. The `execute` tool also hard-errors on StateBackend, so
 """
 
 import os
+import re
 from pathlib import Path
+
+import yaml
 
 # Repo directory holding built-in skills (one subdirectory per skill).
 BUILTIN_SKILLS_DIR = Path(__file__).resolve().parent.parent / "skills" / "built-in"
@@ -69,6 +72,39 @@ def builtin_seed_files() -> dict[str, str]:
                 )
                 seed[virtual] = content
     return seed
+
+
+# A read_file on a path of this shape is a skill activation (progressive
+# disclosure stage 2) — the worker turns it into a skill.activated event.
+SKILL_MD_RE = re.compile(r"^/skills/([^/]+)/([^/]+)/SKILL\.md$")
+
+_FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
+
+
+def skill_index(seed: dict[str, str]) -> dict[str, dict]:
+    """Map each seeded SKILL.md path to {name, tier, description}.
+
+    Used by the worker to enrich skill.activated events without re-reading
+    disk: the tier comes from the path, name/description from frontmatter
+    (falling back to the directory name when frontmatter is malformed).
+    """
+    index: dict[str, dict] = {}
+    for path, content in seed.items():
+        m = SKILL_MD_RE.match(path)
+        if not m:
+            continue
+        tier, dirname = m.group(1), m.group(2)
+        name, description = dirname, ""
+        fm = _FRONTMATTER_RE.match(content)
+        if fm:
+            try:
+                data = yaml.safe_load(fm.group(1)) or {}
+                name = str(data.get("name") or dirname)
+                description = str(data.get("description") or "")
+            except yaml.YAMLError:
+                pass
+        index[path] = {"name": name, "tier": tier, "description": description}
+    return index
 
 
 # Instruction-only replacement for deepagents' SKILLS_SYSTEM_PROMPT: drops the

@@ -3,6 +3,7 @@ import type { Block } from "../store/types";
 import { TextBlock } from "./blocks/TextBlock";
 import { ToolBlock } from "./blocks/ToolBlock";
 import { PlanBlock } from "./blocks/PlanBlock";
+import { SkillBlock } from "./blocks/SkillBlock";
 import { ArtifactBlock } from "./blocks/ArtifactBlock";
 import { ErrorBlock } from "./blocks/ErrorBlock";
 
@@ -16,6 +17,8 @@ function BlockViewImpl({ block, streaming }: Props) {
       return <ToolBlock block={block} />;
     case "plan":
       return <PlanBlock block={block} />;
+    case "skill":
+      return <SkillBlock block={block} />;
     case "artifact":
       return <ArtifactBlock block={block} />;
     case "error":
