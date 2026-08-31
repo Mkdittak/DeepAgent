@@ -46,3 +46,19 @@ export async function getThread(threadId: string): Promise<ThreadDetail | null> 
   if (!res.ok) return null;
   return res.json();
 }
+
+export async function renameThread(threadId: string, title: string): Promise<boolean> {
+  const res = await fetch(`${API_BASE}/threads/${encodeURIComponent(threadId)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title }),
+  });
+  return res.ok;
+}
+
+export async function deleteThread(threadId: string): Promise<boolean> {
+  const res = await fetch(`${API_BASE}/threads/${encodeURIComponent(threadId)}`, {
+    method: "DELETE",
+  });
+  return res.ok;
+}

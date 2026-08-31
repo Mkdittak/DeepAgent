@@ -302,6 +302,31 @@ async def get_thread(thread_id: str):
     return t
 
 
+class RenameThreadBody(BaseModel):
+    title: str
+
+
+@app.patch("/threads/{thread_id}")
+async def rename_thread(thread_id: str, body: RenameThreadBody):
+    """Rename a thread (A1). Title is clamped to the same 80 chars as creation."""
+    title = body.title.strip()[:80]
+    if not title:
+        return JSONResponse({"error": "empty title"}, status_code=422)
+    if not store.set_title(thread_id, title):
+        return JSONResponse({"error": "unknown thread"}, status_code=404)
+    return {"thread_id": thread_id, "title": title}
+
+
+@app.delete("/threads/{thread_id}")
+async def delete_thread(thread_id: str):
+    """Soft-delete a thread (A1): hidden from listings, reversible in storage.
+    Runs, event logs, and artifacts are retained; a run still in flight simply
+    finishes into the hidden thread."""
+    if not store.soft_delete(thread_id):
+        return JSONResponse({"error": "unknown thread"}, status_code=404)
+    return {"thread_id": thread_id, "deleted": True}
+
+
 # ---------------------------------------------------------------------------
 # v1 event envelope + REST/SSE transport (frontend rewrite)
 # ---------------------------------------------------------------------------

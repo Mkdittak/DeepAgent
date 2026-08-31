@@ -141,20 +141,25 @@ def touch_thread(thread_id: str) -> None:
         _save()
 
 
-def set_title(thread_id: str, title: str) -> None:
-    """Writable title (A1) — rename endpoint not built yet, seam ready."""
+def set_title(thread_id: str, title: str) -> bool:
+    """Writable title (A1). Returns False for unknown/deleted threads."""
     t = _threads.get(thread_id)
-    if t:
-        t["title"] = title
-        _save()
+    if not t or t.get("deleted_at"):
+        return False
+    t["title"] = title
+    t["updated_at"] = _now()
+    _save()
+    return True
 
 
-def soft_delete(thread_id: str) -> None:
-    """Archive/delete (A1) — endpoint not built yet, seam ready."""
+def soft_delete(thread_id: str) -> bool:
+    """Archive/delete (A1). Idempotent; returns False for unknown threads."""
     t = _threads.get(thread_id)
-    if t:
-        t["deleted_at"] = _now()
-        _save()
+    if not t:
+        return False
+    t["deleted_at"] = _now()
+    _save()
+    return True
 
 
 def list_threads(runs: dict) -> list[dict]:
