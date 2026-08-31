@@ -20,6 +20,7 @@ execution is off. The `execute` tool also hard-errors on StateBackend, so
 "exec off" holds at both the data layer and the tool layer.
 """
 
+import json
 import os
 import re
 from pathlib import Path
@@ -28,6 +29,19 @@ import yaml
 
 # Repo directory holding built-in skills (one subdirectory per skill).
 BUILTIN_SKILLS_DIR = Path(__file__).resolve().parent.parent / "skills" / "built-in"
+
+# Org/user tier rows live in the skill registry (backend/store.py writes it;
+# the worker reads it fresh each run, read-only and cross-process — B1 moves
+# both sides onto Postgres).
+SKILL_REGISTRY_FILE = os.path.join(
+    os.environ.get("ARTIFACT_BASE", "./artifacts"), ".skill_registry.json"
+)
+
+# agentskills.io spec: 1-64 chars, lowercase a-z/0-9/hyphens, no leading,
+# trailing, or consecutive hyphens.
+SKILL_NAME_RE = re.compile(r"^(?!-)(?!.*--)[a-z0-9-]{1,64}(?<!-)$")
+MAX_DESCRIPTION_LEN = 1024
+MAX_COMPATIBILITY_LEN = 500
 
 # Virtual-FS path prefix the agent sees. Order = priority (last wins on name
 # collision) once org/user tiers are added after built-in.
@@ -105,6 +119,142 @@ def skill_index(seed: dict[str, str]) -> dict[str, dict]:
                 pass
         index[path] = {"name": name, "tier": tier, "description": description}
     return index
+
+
+def parse_skill_md(body: str) -> tuple[dict | None, str | None]:
+    """Parse and spec-validate a SKILL.md. Returns (meta, error).
+
+    Enforces the agentskills.io rules deepagents only warns about — used at
+    install time so invalid skills are rejected with a 422, never stored.
+    """
+    fm = _FRONTMATTER_RE.match(body)
+    if not fm:
+        return None, "SKILL.md must start with YAML frontmatter (--- ... ---)"
+    try:
+        data = yaml.safe_load(fm.group(1)) or {}
+    except yaml.YAMLError as e:
+        return None, f"invalid YAML frontmatter: {e}"
+    if not isinstance(data, dict):
+        return None, "frontmatter must be a YAML mapping"
+    name = data.get("name")
+    description = data.get("description")
+    if not isinstance(name, str) or not SKILL_NAME_RE.match(name):
+        return None, ("name is required: 1-64 lowercase letters, digits, and "
+                      "hyphens; no leading/trailing/consecutive hyphens")
+    if not isinstance(description, str) or not 1 <= len(description) <= MAX_DESCRIPTION_LEN:
+        return None, f"description is required: 1-{MAX_DESCRIPTION_LEN} characters"
+    compatibility = data.get("compatibility")
+    if compatibility is not None and (
+        not isinstance(compatibility, str) or not 1 <= len(compatibility) <= MAX_COMPATIBILITY_LEN
+    ):
+        return None, f"compatibility must be 1-{MAX_COMPATIBILITY_LEN} characters"
+    return {
+        "name": name,
+        "description": description,
+        "license": data.get("license"),
+        "compatibility": compatibility,
+        "metadata": data.get("metadata"),
+        "allowed_tools": data.get("allowed-tools"),
+    }, None
+
+
+def builtin_skill_records() -> list[dict]:
+    """Disk-shipped built-in skills as registry-shaped rows for the API.
+
+    skill_id is deterministic ("builtin-<name>") — built-ins are shared and
+    public, so the opaque-id rule (AUDIT C3) doesn't apply; the stable id is
+    what lets an enable/disable override row in the registry refer to them.
+    `files` includes scripts/ so the UI can show them locked; the seed layer
+    is what excludes scripts from agent state.
+    """
+    records: list[dict] = []
+    if not BUILTIN_SKILLS_DIR.is_dir():
+        return records
+    for skill_dir in sorted(BUILTIN_SKILLS_DIR.iterdir()):
+        md = skill_dir / "SKILL.md"
+        if not skill_dir.is_dir() or not md.is_file():
+            continue
+        try:
+            body = md.read_text(encoding=_TEXT_ENCODING)
+        except (UnicodeDecodeError, OSError):
+            continue
+        meta, err = parse_skill_md(body)
+        if err:
+            continue
+        files: dict[str, str] = {}
+        for root, _dirs, fnames in os.walk(skill_dir):
+            rel_root = Path(root).relative_to(skill_dir)
+            for fname in sorted(fnames):
+                if not rel_root.parts and fname == "SKILL.md":
+                    continue
+                try:
+                    content = (Path(root) / fname).read_text(encoding=_TEXT_ENCODING)
+                except (UnicodeDecodeError, OSError):
+                    continue
+                files["/".join([*rel_root.parts, fname])] = content
+        records.append({
+            "skill_id": f"builtin-{meta['name']}",
+            "name": meta["name"],
+            "tier": "built-in",
+            "description": meta["description"],
+            "source": "repo",
+            "trust_state": "trusted",
+            "enabled": True,
+            "body": body,
+            "files": files,
+        })
+    return records
+
+
+def _registry_rows() -> dict[str, dict]:
+    """Fresh read of the skill registry (worker side, read-only)."""
+    try:
+        with open(SKILL_REGISTRY_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def seed_files() -> dict[str, str]:
+    """Full {virtual_path: content} seed across tiers for the invoke input.
+
+    Built-ins from disk minus any registry disable-override, plus org/user
+    registry rows that are BOTH enabled AND trusted — an untrusted skill is
+    never seeded, not even its description (Phase S: exclusion, not framing).
+    scripts/ and path-traversing file keys never reach agent state.
+    """
+    rows = _registry_rows()
+    disabled_builtins = {
+        r.get("name")
+        for r in rows.values()
+        if r.get("tier") == "built-in" and not r.get("enabled", True) and not r.get("deleted_at")
+    }
+    seed = {
+        path: content
+        for path, content in builtin_seed_files().items()
+        if path.split("/")[3] not in disabled_builtins
+    }
+    for row in rows.values():
+        if row.get("tier") not in ("org", "user") or row.get("deleted_at"):
+            continue
+        if not row.get("enabled") or row.get("trust_state") != "trusted":
+            continue
+        name = row.get("name", "")
+        body = row.get("body", "")
+        if not SKILL_NAME_RE.match(name) or not body:
+            continue
+        base = f"/skills/{row['tier']}/{name}"
+        seed[f"{base}/SKILL.md"] = body
+        for rel, content in (row.get("files") or {}).items():
+            rel = str(rel).replace("\\", "/").strip("/")
+            parts = rel.split("/")
+            if not rel or ".." in parts or parts[0] in _EXCLUDED_SUBDIRS:
+                continue
+            if not isinstance(content, str):
+                continue
+            seed[f"{base}/{rel}"] = content
+    return seed
 
 
 # Instruction-only replacement for deepagents' SKILLS_SYSTEM_PROMPT: drops the

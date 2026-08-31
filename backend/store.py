@@ -28,6 +28,26 @@ Canonical schema (the B1 target these shapes map onto 1:1):
       user_id text NULL, org_id text NULL,        -- The v1 WIRE envelope keeps
       PRIMARY KEY (run_id, event_offset)          -- the field name `offset`.
     )
+    skills(                                  -- Agent Skills (agentskills.io)
+      skill_id    text PRIMARY KEY,          -- uuid4.hex (C3: opaque); the
+                                             -- deterministic "builtin-<name>"
+                                             -- ids are enable-override rows
+                                             -- for repo-shipped skills only
+      name        text,                      -- spec-validated at install
+      tier        text,                      -- 'built-in' | 'org' | 'user'
+      description text,
+      source      text,                      -- provenance: 'repo' | 'upload'
+      trust_state text,                      -- 'trusted' | 'untrusted';
+                                             -- untrusted rows are NEVER
+                                             -- seeded into agent state
+      enabled     boolean,
+      body        text,                      -- full SKILL.md
+      files       jsonb,                     -- {relative_path: content}
+      created_at  timestamptz, updated_at timestamptz,
+      deleted_at  timestamptz NULL,
+      user_id     text NULL, org_id text NULL,
+      UNIQUE (tier, name, user_id, org_id)
+    )
 
 B1 changes ONLY: (1) these function bodies -> SQL; (2) events JSONL -> events
 table (event_offset column); (3) add indexes runs(thread_id), threads(updated_at).
@@ -38,14 +58,22 @@ import contextlib
 import json
 import os
 import re
+import uuid
 from datetime import datetime, timezone
 
 ARTIFACT_BASE = os.environ.get("ARTIFACT_BASE", "./artifacts")
 THREADS_FILE = os.path.join(ARTIFACT_BASE, ".thread_registry.json")
+SKILLS_FILE = os.path.join(ARTIFACT_BASE, ".skill_registry.json")
 
 # thread_id -> {title, created_at, updated_at, deleted_at, user_id, org_id}
 _threads: dict[str, dict] = {}
 _loaded = False
+
+# skill_id -> row (see the skills schema in the module docstring). Org/user
+# rows plus enable-override rows for built-ins; the worker reads this same
+# JSON file (read-only) when seeding runs — see agent/skills.py.
+_skills: dict[str, dict] = {}
+_skills_loaded = False
 
 _TS_TAIL_RE = re.compile(r"_(\d{4}-\d{2}-\d{2})_(\d{2})-(\d{2})-(\d{2})$")
 
@@ -202,3 +230,167 @@ def get_thread(thread_id: str, runs: dict) -> dict | None:
         "updated_at": t["updated_at"],
         "runs": thread_runs,
     }
+
+
+# ---------------------------------------------------------------------------
+# Skills (agentskills.io) — org/user tier rows + built-in enable overrides.
+# Same conventions as threads: False for unknown, deleted_at filtering in the
+# seam, user_id/org_id reserved as None until Mandate 2. Built-in skills ship
+# on disk (trust = code review); callers pass their records in, mirroring how
+# `runs` is passed into the thread functions.
+# ---------------------------------------------------------------------------
+
+_TIER_ORDER = {"built-in": 0, "org": 1, "user": 2}
+
+
+def _load_skills() -> None:
+    global _skills_loaded
+    if _skills_loaded:
+        return
+    if os.path.isfile(SKILLS_FILE):
+        with contextlib.suppress(Exception):
+            with open(SKILLS_FILE, "r", encoding="utf-8") as f:
+                _skills.update(json.load(f))
+    _skills_loaded = True
+
+
+def _save_skills() -> None:
+    os.makedirs(ARTIFACT_BASE, exist_ok=True)
+    tmp = SKILLS_FILE + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(_skills, f, indent=2)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, SKILLS_FILE)
+
+
+def _skill_summary(skill_id: str, row: dict) -> dict:
+    """Light row for listings — no body/files (those are per-skill detail)."""
+    return {
+        "skill_id": skill_id,
+        "name": row["name"],
+        "tier": row["tier"],
+        "description": row.get("description", ""),
+        "source": row.get("source", ""),
+        "trust_state": row.get("trust_state", "untrusted"),
+        "enabled": bool(row.get("enabled")),
+        "file_names": sorted((row.get("files") or {}).keys()),
+    }
+
+
+def list_skills(builtins: list[dict]) -> list[dict]:
+    """All tiers merged: disk built-ins (with any enable override applied)
+    plus non-deleted org/user registry rows. Grouped by tier, then name."""
+    _load_skills()
+    out = []
+    for b in builtins:
+        override = _skills.get(b["skill_id"])
+        enabled = b.get("enabled", True)
+        if override and not override.get("deleted_at"):
+            enabled = bool(override.get("enabled", True))
+        out.append(_skill_summary(b["skill_id"], {**b, "enabled": enabled}))
+    for sid, row in _skills.items():
+        if row.get("tier") == "built-in" or row.get("deleted_at"):
+            continue
+        out.append(_skill_summary(sid, row))
+    out.sort(key=lambda s: (_TIER_ORDER.get(s["tier"], 9), s["name"]))
+    return out
+
+
+def get_skill(skill_id: str, builtins: list[dict]) -> dict | None:
+    """Full record (body + files) for the expandable card. None if unknown."""
+    _load_skills()
+    for b in builtins:
+        if b["skill_id"] == skill_id:
+            override = _skills.get(skill_id)
+            enabled = b.get("enabled", True)
+            if override and not override.get("deleted_at"):
+                enabled = bool(override.get("enabled", True))
+            return {**_skill_summary(skill_id, {**b, "enabled": enabled}),
+                    "body": b.get("body", ""), "files": b.get("files") or {}}
+    row = _skills.get(skill_id)
+    if not row or row.get("deleted_at") or row.get("tier") == "built-in":
+        return None
+    return {**_skill_summary(skill_id, row),
+            "body": row.get("body", ""), "files": row.get("files") or {}}
+
+
+def install_skill(name: str, tier: str, description: str, source: str,
+                  body: str, files: dict) -> dict | None:
+    """Insert an org/user skill: untrusted + disabled until reviewed (Phase S
+    gate ships with install). Returns the summary, or None on a duplicate
+    (tier, name) — the UNIQUE constraint of the B1 schema."""
+    _load_skills()
+    for row in _skills.values():
+        if (row.get("tier") == tier and row.get("name") == name
+                and not row.get("deleted_at")):
+            return None
+    now = _now()
+    skill_id = uuid.uuid4().hex  # server-generated, opaque (C3)
+    _skills[skill_id] = {
+        "name": name,
+        "tier": tier,
+        "description": description,
+        "source": source,
+        "trust_state": "untrusted",
+        "enabled": False,
+        "body": body,
+        "files": files,
+        "created_at": now,
+        "updated_at": now,
+        "deleted_at": None,
+        "user_id": None,
+        "org_id": None,
+    }
+    _save_skills()
+    return _skill_summary(skill_id, _skills[skill_id])
+
+
+def set_skill_enabled(skill_id: str, enabled: bool, builtins: list[dict]) -> bool:
+    """Toggle a skill. For built-ins this upserts an override row keyed by the
+    deterministic builtin id. Returns False for unknown/deleted skills.
+    Trust gating (no enabling untrusted rows) is enforced in the route."""
+    _load_skills()
+    row = _skills.get(skill_id)
+    if row and not row.get("deleted_at"):
+        row["enabled"] = enabled
+        row["updated_at"] = _now()
+        _save_skills()
+        return True
+    for b in builtins:
+        if b["skill_id"] == skill_id:
+            now = _now()
+            _skills[skill_id] = {
+                "name": b["name"], "tier": "built-in", "enabled": enabled,
+                "trust_state": "trusted", "source": "repo",
+                "description": b.get("description", ""),
+                "created_at": now, "updated_at": now, "deleted_at": None,
+                "user_id": None, "org_id": None,
+            }
+            _save_skills()
+            return True
+    return False
+
+
+def set_skill_trust(skill_id: str, trust_state: str) -> bool:
+    """Review action: flip an org/user row's trust_state. Built-ins are
+    repo-managed and never pass through here (route returns 409)."""
+    _load_skills()
+    row = _skills.get(skill_id)
+    if not row or row.get("deleted_at") or row.get("tier") == "built-in":
+        return False
+    row["trust_state"] = trust_state
+    row["updated_at"] = _now()
+    _save_skills()
+    return True
+
+
+def soft_delete_skill(skill_id: str) -> bool:
+    """Soft-delete an org/user row. Returns False for unknown/built-in."""
+    _load_skills()
+    row = _skills.get(skill_id)
+    if not row or row.get("tier") == "built-in":
+        return False
+    row["deleted_at"] = _now()
+    _save_skills()
+    return True

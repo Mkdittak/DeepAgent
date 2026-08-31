@@ -32,6 +32,7 @@ from temporalio.client import Client, WorkflowExecutionStatus
 from temporalio.contrib.workflow_streams import WorkflowStreamClient
 from temporalio.service import RPCError
 
+from agent.skills import builtin_skill_records, parse_skill_md
 from backend import store
 from temporal.workflows import AgentWorkflow, WorkflowInput
 from temporal.activities import AgentProgress
@@ -325,6 +326,103 @@ async def delete_thread(thread_id: str):
     if not store.soft_delete(thread_id):
         return JSONResponse({"error": "unknown thread"}, status_code=404)
     return {"thread_id": thread_id, "deleted": True}
+
+
+# ---------------------------------------------------------------------------
+# Skills (agentskills.io) — manager CRUD. Trust gating lives here: installs
+# land untrusted+disabled, enabling requires trusted, built-ins are repo-
+# managed (409 on trust/delete). The worker seeds runs from the same registry
+# (agent/skills.py.seed_files), so these routes are the only write path.
+# ---------------------------------------------------------------------------
+
+@app.get("/skills")
+async def list_skills():
+    """All tiers for the manager view: built-ins + org/user registry rows."""
+    return store.list_skills(builtin_skill_records())
+
+
+@app.get("/skills/{skill_id}")
+async def get_skill(skill_id: str):
+    """Full record (SKILL.md body + bundled files) for the expandable card."""
+    s = store.get_skill(skill_id, builtin_skill_records())
+    if s is None:
+        return JSONResponse({"error": "unknown skill"}, status_code=404)
+    return s
+
+
+class InstallSkillBody(BaseModel):
+    body: str                      # full SKILL.md (frontmatter + instructions)
+    tier: str = "user"             # 'user' | 'org'
+    files: dict[str, str] = {}     # optional bundle: relative path -> content
+
+
+@app.post("/skills")
+async def install_skill(body: InstallSkillBody):
+    """Install a skill from SKILL.md content. Spec violations are 422s (we
+    enforce what deepagents only warns about); lands untrusted + disabled."""
+    if body.tier not in ("user", "org"):
+        return JSONResponse({"error": "tier must be 'user' or 'org'"}, status_code=422)
+    meta, err = parse_skill_md(body.body)
+    if err:
+        return JSONResponse({"error": err}, status_code=422)
+    for rel in body.files:
+        parts = rel.replace("\\", "/").strip("/").split("/")
+        if not parts[0] or ".." in parts:
+            return JSONResponse({"error": f"invalid bundle path: {rel}"}, status_code=422)
+    s = store.install_skill(
+        name=meta["name"], tier=body.tier, description=meta["description"],
+        source="upload", body=body.body, files=body.files,
+    )
+    if s is None:
+        return JSONResponse({"error": "a skill with this name already exists in this tier"},
+                            status_code=409)
+    return s
+
+
+class PatchSkillBody(BaseModel):
+    enabled: bool | None = None
+    trust_state: str | None = None  # review action: 'trusted' | 'untrusted'
+
+
+@app.patch("/skills/{skill_id}")
+async def patch_skill(skill_id: str, body: PatchSkillBody):
+    """Enable/disable a skill or flip its trust_state (the review action)."""
+    builtins = builtin_skill_records()
+    s = store.get_skill(skill_id, builtins)
+    if s is None:
+        return JSONResponse({"error": "unknown skill"}, status_code=404)
+    if body.trust_state is not None:
+        if body.trust_state not in ("trusted", "untrusted"):
+            return JSONResponse({"error": "trust_state must be 'trusted' or 'untrusted'"},
+                                status_code=422)
+        if s["tier"] == "built-in":
+            return JSONResponse({"error": "built-in skills are managed in the repo"},
+                                status_code=409)
+        store.set_skill_trust(skill_id, body.trust_state)
+        if body.trust_state == "untrusted":
+            # Revoking trust also disables — an untrusted skill never seeds.
+            store.set_skill_enabled(skill_id, False, builtins)
+    if body.enabled is not None:
+        current = store.get_skill(skill_id, builtins)
+        if body.enabled and current["trust_state"] != "trusted":
+            return JSONResponse({"error": "skill needs review before it can be enabled"},
+                                status_code=409)
+        store.set_skill_enabled(skill_id, body.enabled, builtins)
+    out = store.get_skill(skill_id, builtins)
+    out.pop("body", None)
+    out.pop("files", None)
+    return out
+
+
+@app.delete("/skills/{skill_id}")
+async def delete_skill(skill_id: str):
+    """Soft-delete an org/user skill; built-ins are repo-managed (409)."""
+    if any(b["skill_id"] == skill_id for b in builtin_skill_records()):
+        return JSONResponse({"error": "built-in skills are managed in the repo"},
+                            status_code=409)
+    if not store.soft_delete_skill(skill_id):
+        return JSONResponse({"error": "unknown skill"}, status_code=404)
+    return {"skill_id": skill_id, "deleted": True}
 
 
 # ---------------------------------------------------------------------------

@@ -71,9 +71,16 @@ def create_agent(checkpointer=None):
             # run) and injects name+description per model call. Constructed
             # directly instead of via the `skills=` param so the prompt
             # template can be the instruction-only variant.
+            # Source order = priority (last wins on a name collision):
+            # user overrides org overrides built-in, mirroring the memory
+            # tiers. Empty sources are harmless — ls() just returns nothing.
             SkillsMiddleware(
                 backend=backend,
-                sources=[(BUILTIN_SOURCE, "Built-in")],
+                sources=[
+                    (BUILTIN_SOURCE, "Built-in"),
+                    ("/skills/org", "Organization"),
+                    ("/skills/user", "Your"),
+                ],
                 system_prompt=SKILLS_SYSTEM_PROMPT,
             ),
             # deepagents 0.7.8 no longer wires TodoListMiddleware

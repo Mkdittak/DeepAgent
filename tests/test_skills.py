@@ -103,5 +103,80 @@ except (ValueError, TypeError) as e:
 
 check("template contains no execute-scripts guidance", "Executing Skill Scripts" not in SKILLS_SYSTEM_PROMPT)
 
+# --- 5. Store seam + seeding trust gate (slice 3) --------------------------
+import backend.store as store
+from agent.skills import builtin_skill_records, parse_skill_md, seed_files
+
+with tempfile.TemporaryDirectory() as tmp:
+    reg_file = str(Path(tmp) / ".skill_registry.json")
+    orig_state = (store.SKILLS_FILE, store.ARTIFACT_BASE,
+                  dict(store._skills), store._skills_loaded,
+                  skills_mod.SKILL_REGISTRY_FILE)
+    store.SKILLS_FILE = reg_file
+    store.ARTIFACT_BASE = tmp
+    store._skills = {}
+    store._skills_loaded = True
+    skills_mod.SKILL_REGISTRY_FILE = reg_file
+    try:
+        builtins = builtin_skill_records()
+        check("builtin records found", len(builtins) >= 2)
+        check("builtin ids deterministic", all(b["skill_id"] == f"builtin-{b['name']}" for b in builtins))
+
+        # Spec enforcement at install time
+        _, err = parse_skill_md("no frontmatter here")
+        check("parse rejects missing frontmatter", err is not None)
+        _, err = parse_skill_md("---\nname: Bad--Name\ndescription: d\n---\nx")
+        check("parse rejects invalid name", err is not None)
+        meta, err = parse_skill_md("---\nname: good-skill\ndescription: does things. use for tests.\n---\nBody.")
+        check("parse accepts valid SKILL.md", err is None and meta["name"] == "good-skill")
+
+        # Install lands untrusted + disabled
+        row = store.install_skill("good-skill", "user", meta["description"], "upload",
+                                  "---\nname: good-skill\ndescription: d\n---\nBody.",
+                                  {"references/r.md": "ref", "scripts/x.py": "print(1)"})
+        check("install returns row", row is not None)
+        check("install lands untrusted", row["trust_state"] == "untrusted")
+        check("install lands disabled", row["enabled"] is False)
+        check("duplicate (tier,name) rejected", store.install_skill(
+            "good-skill", "user", "d", "upload", "b", {}) is None)
+
+        # THE invariant: untrusted-or-disabled rows never reach agent state
+        seed = seed_files()
+        check("untrusted skill absent from seed", not any("/skills/user/good-skill/" in p for p in seed))
+        sid = row["skill_id"]
+        store.set_skill_trust(sid, "trusted")
+        seed = seed_files()
+        check("trusted-but-disabled still absent from seed", not any("good-skill" in p for p in seed))
+        store.set_skill_enabled(sid, True, builtins)
+        seed = seed_files()
+        check("trusted+enabled seeds SKILL.md", "/skills/user/good-skill/SKILL.md" in seed)
+        check("references seed for registry skills", "/skills/user/good-skill/references/r.md" in seed)
+        check("scripts never seed for registry skills", not any("/scripts/" in p for p in seed))
+
+        # Revoking trust disables seeding again; soft delete removes entirely
+        store.set_skill_trust(sid, "untrusted")
+        check("revoked skill absent from seed", not any("good-skill" in p for p in seed_files()))
+        check("soft delete works", store.soft_delete_skill(sid) is True)
+        check("built-in delete refused by store", store.soft_delete_skill(builtins[0]["skill_id"]) is False)
+
+        # Built-in disable override flows through to the seed
+        b0 = builtins[0]
+        store.set_skill_enabled(b0["skill_id"], False, builtins)
+        check("disabled built-in absent from seed",
+              not any(f"/skills/built-in/{b0['name']}/" in p for p in seed_files()))
+        store.set_skill_enabled(b0["skill_id"], True, builtins)
+        check("re-enabled built-in back in seed",
+              f"/skills/built-in/{b0['name']}/SKILL.md" in seed_files())
+
+        # Listing merges tiers; registry file survives on disk
+        listed = store.list_skills(builtins)
+        check("list includes built-ins", sum(1 for s in listed if s["tier"] == "built-in") == len(builtins))
+        check("list hides deleted user skill", not any(s["skill_id"] == sid for s in listed))
+        check("registry file persisted", Path(reg_file).is_file())
+    finally:
+        (store.SKILLS_FILE, store.ARTIFACT_BASE, store._skills,
+         store._skills_loaded, skills_mod.SKILL_REGISTRY_FILE) = (
+            orig_state[0], orig_state[1], orig_state[2], orig_state[3], orig_state[4])
+
 print(f"\n{len(failures)} failure(s)")
 sys.exit(1 if failures else 0)

@@ -200,12 +200,14 @@ async def run_deep_agent(input: AgentInput) -> str:
             _config = {"recursion_limit": 30}
             if input.thread_id:
                 _config["configurable"] = {"thread_id": input.thread_id}
-            # Seed built-in Agent Skills into the virtual FS (StateBackend
-            # reads the `files` state channel). Re-seeded every run — the
-            # channel's dict-merge reducer refreshes skill files in ongoing
-            # threads. scripts/ are never seeded (instruction-only v1).
-            from agent.skills import builtin_seed_files, skill_index
-            skill_seed = builtin_seed_files()
+            # Seed Agent Skills into the virtual FS (StateBackend reads the
+            # `files` state channel): built-ins from disk + enabled AND
+            # trusted org/user rows from the skill registry, re-read fresh
+            # each run. The channel's dict-merge reducer refreshes skill
+            # files in ongoing threads. scripts/ are never seeded
+            # (instruction-only v1).
+            from agent.skills import seed_files, skill_index
+            skill_seed = seed_files()
             skills_by_path = skill_index(skill_seed)
             skills_activated: set[str] = set()  # dedupe skill.activated per run
             async for ev in agent.astream_events(
