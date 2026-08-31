@@ -1,0 +1,173 @@
+/* Skills manager view — swapped in for Conversation+Composer. Reuses the
+   existing token palette only; accent reserved for primary actions. */
+.da-skills { flex: 1; overflow-y: auto; background: var(--da-bg); }
+.da-skills-inner { max-width: var(--measure); margin: 0 auto; padding: 24px 20px 48px; }
+
+.da-skills-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.da-skills-head h2 { margin: 0; font-size: var(--fs-h2); color: var(--da-fg); }
+.da-skills-actions { display: flex; gap: 8px; }
+.da-skills-note { margin: 6px 0 20px; font-size: var(--fs-sm); color: var(--da-fg-muted); }
+
+.da-skillbtn {
+  font-size: var(--fs-sm);
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--da-border);
+  background: var(--da-surface);
+  color: var(--da-fg);
+  cursor: pointer;
+}
+.da-skillbtn:hover { background: var(--da-surface-2); }
+.da-skillbtn.is-primary {
+  background: var(--da-accent);
+  border-color: var(--da-accent);
+  color: #fff;
+}
+.da-skillbtn.is-primary:hover { background: var(--da-accent-strong); }
+.da-skillbtn.is-danger { color: var(--da-err); border-color: var(--da-err-border); }
+.da-skillbtn.is-danger:hover { background: var(--da-err-soft); }
+
+/* Install / new-skill form */
+.da-skills-form {
+  border: 1px solid var(--da-border);
+  background: var(--da-surface);
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 20px;
+}
+.da-skills-form textarea {
+  width: 100%;
+  min-height: 180px;
+  resize: vertical;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: var(--fs-sm);
+  color: var(--da-fg);
+  background: var(--da-bg);
+  border: 1px solid var(--da-border);
+  border-radius: 8px;
+  padding: 10px;
+  box-sizing: border-box;
+}
+.da-skills-form-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 10px;
+  font-size: var(--fs-sm);
+  color: var(--da-fg-muted);
+}
+.da-skills-form-row select {
+  font-size: var(--fs-sm);
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--da-border);
+  background: var(--da-bg);
+  color: var(--da-fg);
+}
+.da-skills-error { margin-top: 8px; font-size: var(--fs-sm); color: var(--da-err); }
+
+/* Tier groups */
+.da-skills-group { margin-top: 24px; }
+.da-skills-group h3 {
+  margin: 0 0 8px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--da-fg-muted);
+}
+.da-skills-empty { font-size: var(--fs-sm); color: var(--da-fg-muted); margin: 4px 0; }
+
+/* Skill cards */
+.da-skillcard {
+  border: 1px solid var(--da-border);
+  background: var(--da-surface);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 10px;
+}
+.da-skillcard.is-off { opacity: 0.75; }
+.da-skillcard-head { display: flex; align-items: center; gap: 10px; }
+.da-skillcard-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--da-fg);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+.da-skillcard-caret { color: var(--da-fg-muted); font-size: 10px; }
+.da-skillcard-source { margin-left: auto; font-size: var(--fs-xs); color: var(--da-fg-muted); }
+.da-skillcard-desc { margin: 6px 0 0 18px; font-size: var(--fs-sm); line-height: 1.5; color: var(--da-fg-muted); }
+
+/* Chips */
+.da-chip {
+  font-size: var(--fs-xs);
+  color: var(--da-fg-muted);
+  border: 1px solid var(--da-border);
+  background: var(--da-surface-2);
+  border-radius: 999px;
+  padding: 1px 8px;
+  white-space: nowrap;
+}
+.da-chip-ok { color: var(--da-ok); background: var(--da-ok-soft); border-color: transparent; }
+.da-chip-warn { color: var(--da-err); background: var(--da-err-soft); border-color: var(--da-err-border); }
+.da-chip-locked { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+
+/* Toggle */
+.da-toggle {
+  flex-shrink: 0;
+  width: 34px;
+  height: 20px;
+  border-radius: 999px;
+  border: 1px solid var(--da-border);
+  background: var(--da-surface-2);
+  position: relative;
+  cursor: pointer;
+  padding: 0;
+}
+.da-toggle-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--da-fg-muted);
+  transition: left 0.12s ease, background 0.12s ease;
+}
+.da-toggle.is-on { background: var(--da-accent); border-color: var(--da-accent); }
+.da-toggle.is-on .da-toggle-knob { left: 16px; background: #fff; }
+.da-toggle:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Expanded body */
+.da-skillcard-body { margin: 10px 0 0 18px; }
+.da-skillcard-review {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--fs-sm);
+  color: var(--da-fg-muted);
+  margin-bottom: 8px;
+}
+.da-skillcard-md {
+  margin: 0;
+  padding: 10px 12px;
+  max-height: 320px;
+  overflow: auto;
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+  background: var(--da-code-bg);
+  border: 1px solid var(--da-border);
+  border-radius: 8px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--da-fg);
+}
+.da-skillcard-files { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.da-skillcard-actions { display: flex; gap: 8px; margin-top: 10px; }

@@ -91,6 +91,24 @@ export interface ThreadSummary {
   run_count: number;
 }
 
+export type SkillTier = "built-in" | "org" | "user";
+
+export interface SkillSummary {
+  skill_id: string;
+  name: string;
+  tier: SkillTier;
+  description: string;
+  source: string;
+  trust_state: "trusted" | "untrusted";
+  enabled: boolean;
+  file_names: string[];
+}
+
+export interface SkillDetail extends SkillSummary {
+  body: string; // full SKILL.md
+  files: Record<string, string>;
+}
+
 export interface ThreadDetail {
   thread_id: string;
   title: string;

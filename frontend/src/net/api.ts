@@ -1,4 +1,4 @@
-import type { RunSummary, ThreadSummary, ThreadDetail } from "../store/types";
+import type { RunSummary, SkillDetail, SkillSummary, ThreadSummary, ThreadDetail } from "../store/types";
 
 // API origin. Configurable via VITE_API_BASE so the app isn't pinned to the
 // build machine: set it to "" for same-origin (relative URLs behind a reverse
@@ -58,6 +58,54 @@ export async function renameThread(threadId: string, title: string): Promise<boo
 
 export async function deleteThread(threadId: string): Promise<boolean> {
   const res = await fetch(`${API_BASE}/threads/${encodeURIComponent(threadId)}`, {
+    method: "DELETE",
+  });
+  return res.ok;
+}
+
+// ---- Skills (agentskills.io) ----
+
+export async function listSkills(): Promise<SkillSummary[]> {
+  const res = await fetch(`${API_BASE}/skills`);
+  if (!res.ok) return [];
+  return res.json();
+}
+
+export async function getSkill(skillId: string): Promise<SkillDetail | null> {
+  const res = await fetch(`${API_BASE}/skills/${encodeURIComponent(skillId)}`);
+  if (!res.ok) return null;
+  return res.json();
+}
+
+// Returns the created skill, or an error message string for 409/422s.
+export async function installSkill(
+  body: string,
+  tier: "user" | "org"
+): Promise<SkillSummary | string> {
+  const res = await fetch(`${API_BASE}/skills`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ body, tier }),
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) return data?.error ?? `install failed: ${res.status}`;
+  return data as SkillSummary;
+}
+
+export async function patchSkill(
+  skillId: string,
+  patch: { enabled?: boolean; trust_state?: "trusted" | "untrusted" }
+): Promise<boolean> {
+  const res = await fetch(`${API_BASE}/skills/${encodeURIComponent(skillId)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  return res.ok;
+}
+
+export async function deleteSkill(skillId: string): Promise<boolean> {
+  const res = await fetch(`${API_BASE}/skills/${encodeURIComponent(skillId)}`, {
     method: "DELETE",
   });
   return res.ok;

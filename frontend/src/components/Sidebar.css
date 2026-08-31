@@ -29,6 +29,22 @@
 }
 .da-newchat:hover { background: var(--da-surface-2); border-color: var(--da-fg-muted); }
 
+.da-sidenav { flex-shrink: 0; display: flex; flex-direction: column; gap: 2px; }
+.da-sidenav-item {
+  padding: 8px 10px;
+  font-size: 14px;
+  font-family: inherit;
+  text-align: left;
+  color: var(--da-fg);
+  background: none;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.da-sidenav-item:hover { background: var(--da-surface-2); }
+.da-sidenav-item.is-active { background: var(--da-accent-soft); font-weight: 600; }
+
 .da-thread-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
 .da-thread-list::-webkit-scrollbar { width: 7px; }
 .da-thread-list::-webkit-scrollbar-thumb { background: var(--da-border); border-radius: 4px; }

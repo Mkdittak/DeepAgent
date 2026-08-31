@@ -5,7 +5,12 @@ import { useStore } from "../store/store";
 import type { ThreadSummary } from "../store/types";
 import "./Sidebar.css";
 
-type Props = { open: boolean; onNavigate: () => void };
+type Props = {
+  open: boolean;
+  onNavigate: () => void;
+  view: "chat" | "skills";
+  onSetView: (view: "chat" | "skills") => void;
+};
 
 const ORDER = ["Today", "Yesterday", "Previous 7 days", "Older"] as const;
 
@@ -22,7 +27,7 @@ function bucketOf(iso: string): string {
   return "Older";
 }
 
-export function Sidebar({ open, onNavigate }: Props) {
+export function Sidebar({ open, onNavigate, view, onSetView }: Props) {
   const [threads, setThreads] = useState<ThreadSummary[]>([]);
   const [olderOpen, setOlderOpen] = useState(false);
   const [menuFor, setMenuFor] = useState<string | null>(null);
@@ -64,6 +69,7 @@ export function Sidebar({ open, onNavigate }: Props) {
   for (const t of threads) (grouped[bucketOf(t.updated_at)] ??= []).push(t);
 
   const select = (id: string) => {
+    onSetView("chat");
     void loadThread(id);
     onNavigate();
   };
@@ -101,6 +107,7 @@ export function Sidebar({ open, onNavigate }: Props) {
       <button
         className="da-newchat"
         onClick={() => {
+          onSetView("chat");
           newChat();
           refresh();
           onNavigate();
@@ -108,6 +115,18 @@ export function Sidebar({ open, onNavigate }: Props) {
       >
         + New chat
       </button>
+
+      <nav className="da-sidenav">
+        <button
+          className={`da-sidenav-item ${view === "skills" ? "is-active" : ""}`}
+          onClick={() => {
+            onSetView("skills");
+            onNavigate();
+          }}
+        >
+          Skills
+        </button>
+      </nav>
 
       <div className="da-thread-list">
         {threads.length === 0 && <p className="da-thread-empty">No conversations yet.</p>}
