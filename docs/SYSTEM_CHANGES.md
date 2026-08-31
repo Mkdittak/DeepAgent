@@ -281,6 +281,36 @@ design tokens so the themes stay consistent. Deliberately **no web font** was in
 avoid depending on a font download over venue wifi; only the scale changed. **Result:** a
 considered, consistent visual identity with no new network dependency.
 
+### F11 — Agent Skills (agentskills.io) *(2a55d31, 459cf79, d63a917, 39f8c38; live-run fixes 604dce1, 56ab58b)*
+The agent conforms to the open Agent Skills standard: a skill is a folder with a `SKILL.md`
+(YAML `name` + `description`, then instructions), loaded by **progressive disclosure** —
+every run sees only each skill's name and description injected into the system prompt; on a
+task match the model reads the full SKILL.md with one `read_file`; bundled `references/`
+files are read only when the skill directs it. deepagents 0.7.8 ships this natively
+(`SkillsMiddleware`), so the integration *wires* rather than rebuilds: skill files are
+seeded into the virtual filesystem per run, and discovery/injection are library code.
+Skills live in three tiers mirroring the memory tiers — **built-in** (shipped in the repo
+`skills/` directory, trusted via code review), **organization**, and **personal** — with
+org/user rows in a skill registry behind the store seam (F6), schema documented for the
+frozen database migration. **Security:** v1 is deliberately instruction-only — bundled
+`scripts/` are never seeded into agent state and `execute` stays stubbed, so "exec off"
+holds at both the data and tool layer; installs are spec-validated (rejected with 422s
+where the library only warns), land **untrusted and disabled**, and cannot be enabled until
+explicitly reviewed. An untrusted skill is never injected at all — not even its description
+— which is *stricter* than the S4 framing approach, because a skill is designed to be
+obeyed while search results are merely consulted. Activation is visible end to end: a
+`skill.activated` event on the same offset-addressed stream (F2), a SkillBlock in the
+conversation feed, and a Skills manager view in the sidebar (tier groups, trust chips,
+review-gated toggles, scripts shown locked "exec off · v1"). Two defects were found by
+live runs, not by unit tests, and fixed: seeded files had to be FileData dicts rather than
+raw strings (604dce1), and the model followed SKILL.md but skipped skill-directed
+`references/` reads until those reads were made imperative in the skill body and exempted
+from the prompt's speed/repetition budget (56ab58b) — the same "be fast pressure beats a
+soft suggestion" failure mode as the plan-panel case below, fixed the same way, and
+re-verified live. **Result:** the agent's capabilities are extensible by dropping in a
+folder that any conformant agent can also consume, with the trust boundary shipped in the
+same commit as the install surface — before sharing exists, not after.
+
 ---
 
 ## Investigated but deliberately not changed
