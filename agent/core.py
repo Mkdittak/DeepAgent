@@ -23,8 +23,10 @@ CRITICAL RULES — follow these strictly:
   next step in_progress). Do this with brief write_todos updates, not commentary.
 - After planning, check the Available Skills list in this prompt: if a skill matches
   the task, your NEXT tool call must be read_file on that skill's SKILL.md
-  (limit=1000), and you follow its workflow. This is required and does not count
-  as research.
+  (limit=1000), and you follow its workflow — including reading any references/
+  files the skill tells you to read. Skill file reads (read_file on /skills/...)
+  are required, never count as research, and are exempt from the speed and
+  repetition rules below.
 - Be FAST. Do NOT over-research. 1-2 web searches max per task. Get info, then produce output.
 - NEVER loop. NEVER call the same tool twice with the same or similar arguments.
 - NEVER call web_search more than 3 times total in a single task.

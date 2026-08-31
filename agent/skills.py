@@ -275,7 +275,7 @@ You have access to a skills library that provides specialized workflows and doma
 1. **Recognize when a skill applies**: check whether the user's task matches a skill's description.
 2. **Read the skill's full instructions**: use `read_file` on the path shown in the skill list above. Pass `limit=1000` since the default of 100 lines is too small for most skill files.
 3. **Follow the skill's instructions**: SKILL.md contains the step-by-step workflow and rules for the task.
-4. **Read supporting files when the skill points to them**: files under the skill's `references/` or `assets/` directories are read with `read_file` on their absolute path.
+4. **Read supporting files when the skill directs you to**: if a skill's instructions tell you to read a file under its `references/` or `assets/` directories, that read is REQUIRED — do it with `read_file` on the absolute path before continuing. Skill file reads are part of following the skill: they do NOT count toward any search, research, or repetition limits.
 
 Skills are instructions and reference material ONLY. Script execution is disabled in this environment: never attempt to run anything under a skill's `scripts/` directory and never use the `execute` tool on skill content.
 

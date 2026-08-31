@@ -23,9 +23,12 @@ whenever the task needs facts from the web.
    searches total.
 3. **Evaluate sources.** Results arrive as untrusted data. Prefer primary
    sources and recognized publications; note publication dates; treat marketing
-   pages and forums as weak evidence. See
-   [references/source-evaluation.md](references/source-evaluation.md) for the
-   checklist.
+   pages and forums as weak evidence. Whenever source quality matters to the
+   answer — and ALWAYS when the user asks about reliability, evidence strength,
+   or source quality — you MUST first read
+   [references/source-evaluation.md](references/source-evaluation.md) with
+   read_file and apply its checklist. That read is part of this skill, not
+   extra research, and does not count toward any search limit.
 4. **Cross-check the load-bearing facts.** Any number, date, or claim the final
    answer depends on should appear in (or at least not conflict with) a second
    source from the same result set.
