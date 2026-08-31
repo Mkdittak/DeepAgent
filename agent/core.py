@@ -3,8 +3,11 @@ Core Deep Agent setup — one general-purpose agent with broad capabilities.
 """
 
 from deepagents import create_deep_agent
+from deepagents.backends import StateBackend
+from deepagents.middleware import SkillsMiddleware
 from langchain.agents.middleware import TodoListMiddleware
 
+from agent.skills import BUILTIN_SOURCE, SKILLS_SYSTEM_PROMPT
 from agent.tools import web_search, generate_pptx, generate_xlsx, generate_html
 
 SYSTEM_PROMPT = """\
@@ -18,6 +21,10 @@ CRITICAL RULES — follow these strictly:
   never call any other tool or produce output before the plan exists.
 - As you finish each step, update the todo list to mark it completed (and mark the
   next step in_progress). Do this with brief write_todos updates, not commentary.
+- After planning, check the Available Skills list in this prompt: if a skill matches
+  the task, your NEXT tool call must be read_file on that skill's SKILL.md
+  (limit=1000), and you follow its workflow. This is required and does not count
+  as research.
 - Be FAST. Do NOT over-research. 1-2 web searches max per task. Get info, then produce output.
 - NEVER loop. NEVER call the same tool twice with the same or similar arguments.
 - NEVER call web_search more than 3 times total in a single task.
@@ -42,6 +49,11 @@ def create_agent(checkpointer=None):
             thread_id in the invocation config), the agent persists and reloads
             conversation state per thread, giving multi-turn memory.
     """
+    # StateBackend (the deepagents default) is passed explicitly so the same
+    # instance serves both the filesystem tools and SkillsMiddleware. It keeps
+    # the FS virtual and `execute` hard-erroring — which is what makes the
+    # skills integration instruction-only (see agent/skills.py).
+    backend = StateBackend()
     return create_deep_agent(
         model="google_genai:gemini-3.6-flash",
         system_prompt=SYSTEM_PROMPT,
@@ -52,10 +64,24 @@ def create_agent(checkpointer=None):
             generate_html,
         ],
         checkpointer=checkpointer,
-        # deepagents 0.7.8 no longer wires TodoListMiddleware automatically, so
-        # add it explicitly — this is what provides the `write_todos` tool that
-        # drives the plan.snapshot events / PlanBlock (headline of Mandate 1).
-        middleware=[TodoListMiddleware()],
+        backend=backend,
+        middleware=[
+            # Agent Skills (agentskills.io): discovers /skills/built-in/* from
+            # the seeded `files` state (temporal/activities.py seeds it each
+            # run) and injects name+description per model call. Constructed
+            # directly instead of via the `skills=` param so the prompt
+            # template can be the instruction-only variant.
+            SkillsMiddleware(
+                backend=backend,
+                sources=[(BUILTIN_SOURCE, "Built-in")],
+                system_prompt=SKILLS_SYSTEM_PROMPT,
+            ),
+            # deepagents 0.7.8 no longer wires TodoListMiddleware
+            # automatically, so add it explicitly — this provides the
+            # `write_todos` tool that drives plan.snapshot / PlanBlock
+            # (headline of Mandate 1).
+            TodoListMiddleware(),
+        ],
         # Other built-ins (filesystem, execute, task) are still included by
         # Deep Agents automatically.
     )
