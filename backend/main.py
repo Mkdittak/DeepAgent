@@ -33,7 +33,7 @@ from temporalio.contrib.workflow_streams import WorkflowStreamClient
 from temporalio.service import RPCError
 
 from agent.skills import builtin_skill_records, parse_skill_md
-from backend import store
+from backend import auth, store
 from temporal.workflows import AgentWorkflow, WorkflowInput
 from temporal.activities import AgentProgress
 
@@ -200,6 +200,22 @@ _load_registry()
 # One-time backfill: archive pre-existing runs' threads so the sidebar starts
 # clean (A3). No-op once .thread_registry.json exists.
 store.load(run_registry)
+
+
+def _backfill_legacy_identity() -> None:
+    """When auth is on, stamp every pre-auth row (null user_id) with the LEGACY
+    identity so it stays reachable in one claimable bucket. Idempotent; no-op
+    with the flag off, so pre-auth behavior is untouched."""
+    if not auth.auth_enabled():
+        return
+    counts = store.backfill_identity(run_registry, auth.LEGACY_USER_ID, auth.LEGACY_ORG_ID)
+    if counts["runs"]:
+        _save_registry()
+    if any(counts.values()):
+        logger.info("auth backfill: stamped legacy identity on %s", counts)
+
+
+_backfill_legacy_identity()
 
 
 def _make_run_id(user_message: str) -> str:

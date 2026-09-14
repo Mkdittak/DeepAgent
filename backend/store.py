@@ -146,6 +146,40 @@ def load(runs: dict) -> None:
     _loaded = True
 
 
+def backfill_identity(runs: dict, user_id: str, org_id: str) -> dict[str, int]:
+    """One-time stamp of pre-auth rows with the LEGACY identity (mirrors the
+    A3 thread archive above). Any thread / run / org-or-user skill row whose
+    user_id is null gets (user_id, org_id), so data created before
+    AUTH_ENABLED lands in one claimable bucket instead of being invisible to
+    every real tenant. Idempotent: rows already stamped are untouched.
+
+    Built-in enable-override rows are deliberately left null — they are a
+    project-wide toggle, not a tenant's data.
+
+    `runs` is the caller's run registry (mutated in place, like load()); the
+    caller persists it. Returns per-table counts of rows stamped.
+    """
+    _load_skills()
+    counts = {"threads": 0, "runs": 0, "skills": 0}
+    for t in _threads.values():
+        if t.get("user_id") is None:
+            t["user_id"], t["org_id"] = user_id, org_id
+            counts["threads"] += 1
+    for info in runs.values():
+        if isinstance(info, dict) and info.get("user_id") is None:
+            info["user_id"], info["org_id"] = user_id, org_id
+            counts["runs"] += 1
+    for row in _skills.values():
+        if row.get("tier") in ("org", "user") and row.get("user_id") is None:
+            row["user_id"], row["org_id"] = user_id, org_id
+            counts["skills"] += 1
+    if counts["threads"]:
+        _save()
+    if counts["skills"]:
+        _save_skills()
+    return counts
+
+
 def ensure_thread(thread_id: str, first_user_message: str, run_id: str) -> None:
     """Create a thread record on the first message (A4: no empty threads)."""
     if thread_id in _threads:
