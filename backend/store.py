@@ -60,6 +60,7 @@ import os
 import re
 import uuid
 from datetime import datetime, timezone
+from typing import NamedTuple
 
 ARTIFACT_BASE = os.environ.get("ARTIFACT_BASE", "./artifacts")
 THREADS_FILE = os.path.join(ARTIFACT_BASE, ".thread_registry.json")
@@ -76,6 +77,44 @@ _skills: dict[str, dict] = {}
 _skills_loaded = False
 
 _TS_TAIL_RE = re.compile(r"_(\d{4}-\d{2}-\d{2})_(\d{2})-(\d{2})-(\d{2})$")
+
+
+class Identity(NamedTuple):
+    """Who a row belongs to. Every seam function takes `identity=None`: None is
+    the pre-auth single-user behavior (no filtering, rows stamped null), which
+    is what the API passes while AUTH_ENABLED=false. Kept as a plain tuple so
+    the seam's signatures stay swap-compatible with the B1 Postgres rewrite.
+
+    Tenancy here is row scoping only. Production row-level security (Postgres
+    RLS) is a separately tracked step, deliberately not introduced here."""
+    user_id: str
+    org_id: str
+
+
+def _owned(row: dict, identity: Identity | None) -> bool:
+    """Row-scoping rule for per-member data (threads, runs): both ids match."""
+    if identity is None:
+        return True
+    return row.get("user_id") == identity.user_id and row.get("org_id") == identity.org_id
+
+
+def _skill_visible(row: dict, identity: Identity | None) -> bool:
+    """Org rows are shared by the org; user rows belong to one member; built-in
+    override rows are project-wide."""
+    if identity is None:
+        return True
+    tier = row.get("tier")
+    if tier == "org":
+        return row.get("org_id") == identity.org_id
+    if tier == "user":
+        return _owned(row, identity)
+    return True
+
+
+def _stamp(row: dict, identity: Identity | None) -> dict:
+    row["user_id"] = identity.user_id if identity else None
+    row["org_id"] = identity.org_id if identity else None
+    return row
 
 
 def _now() -> str:
@@ -180,20 +219,28 @@ def backfill_identity(runs: dict, user_id: str, org_id: str) -> dict[str, int]:
     return counts
 
 
-def ensure_thread(thread_id: str, first_user_message: str, run_id: str) -> None:
-    """Create a thread record on the first message (A4: no empty threads)."""
+def ensure_thread(thread_id: str, first_user_message: str, run_id: str,
+                  identity: Identity | None = None) -> None:
+    """Create a thread record on the first message (A4: no empty threads),
+    stamped with its owner."""
     if thread_id in _threads:
         return
     now = _now()
-    _threads[thread_id] = {
+    _threads[thread_id] = _stamp({
         "title": _readable(run_id, first_user_message),
         "created_at": now,
         "updated_at": now,
         "deleted_at": None,
-        "user_id": None,
-        "org_id": None,
-    }
+    }, identity)
     _save()
+
+
+def owns_thread(thread_id: str, identity: Identity | None) -> bool:
+    """Existence check that is also an ownership check: True only for a known,
+    non-deleted thread the identity owns. This is the guard for continuing a
+    conversation — a client may echo a thread_id, never claim one."""
+    t = _threads.get(thread_id)
+    return bool(t) and not t.get("deleted_at") and _owned(t, identity)
 
 
 def touch_thread(thread_id: str) -> None:
@@ -203,10 +250,11 @@ def touch_thread(thread_id: str) -> None:
         _save()
 
 
-def set_title(thread_id: str, title: str) -> bool:
-    """Writable title (A1). Returns False for unknown/deleted threads."""
+def set_title(thread_id: str, title: str, identity: Identity | None = None) -> bool:
+    """Writable title (A1). Returns False for unknown/deleted/unowned threads
+    alike — the route maps False to 404 so ownership is never confirmed."""
     t = _threads.get(thread_id)
-    if not t or t.get("deleted_at"):
+    if not t or t.get("deleted_at") or not _owned(t, identity):
         return False
     t["title"] = title
     t["updated_at"] = _now()
@@ -214,18 +262,19 @@ def set_title(thread_id: str, title: str) -> bool:
     return True
 
 
-def soft_delete(thread_id: str) -> bool:
-    """Archive/delete (A1). Idempotent; returns False for unknown threads."""
+def soft_delete(thread_id: str, identity: Identity | None = None) -> bool:
+    """Archive/delete (A1). Idempotent; returns False for unknown/unowned."""
     t = _threads.get(thread_id)
-    if not t:
+    if not t or not _owned(t, identity):
         return False
     t["deleted_at"] = _now()
     _save()
     return True
 
 
-def list_threads(runs: dict) -> list[dict]:
-    """Non-deleted threads, newest updated_at first, with run counts."""
+def list_threads(runs: dict, identity: Identity | None = None) -> list[dict]:
+    """Non-deleted threads owned by `identity` (all, when None), newest
+    updated_at first, with run counts."""
     counts: dict[str, int] = {}
     for info in runs.values():
         tid = info.get("thread_id")
@@ -240,15 +289,16 @@ def list_threads(runs: dict) -> list[dict]:
             "run_count": counts.get(tid, 0),
         }
         for tid, t in _threads.items()
-        if not t.get("deleted_at")  # A1 filter in the seam from day one
+        if not t.get("deleted_at") and _owned(t, identity)  # A1 + tenancy in the seam
     ]
     out.sort(key=lambda x: x["updated_at"], reverse=True)
     return out
 
 
-def get_thread(thread_id: str, runs: dict) -> dict | None:
+def get_thread(thread_id: str, runs: dict, identity: Identity | None = None) -> dict | None:
+    """None for unknown, deleted, AND unowned — indistinguishable on purpose."""
     t = _threads.get(thread_id)
-    if not t or t.get("deleted_at"):
+    if not t or t.get("deleted_at") or not _owned(t, identity):
         return None
     thread_runs = [
         {"run_id": rid, "status": info.get("status", "unknown"),
@@ -312,9 +362,11 @@ def _skill_summary(skill_id: str, row: dict) -> dict:
     }
 
 
-def list_skills(builtins: list[dict]) -> list[dict]:
+def list_skills(builtins: list[dict], identity: Identity | None = None) -> list[dict]:
     """All tiers merged: disk built-ins (with any enable override applied)
-    plus non-deleted org/user registry rows. Grouped by tier, then name."""
+    plus non-deleted org/user registry rows visible to `identity` — this org's
+    org rows and this member's user rows (everything, when None). Grouped by
+    tier, then name."""
     _load_skills()
     out = []
     for b in builtins:
@@ -326,13 +378,16 @@ def list_skills(builtins: list[dict]) -> list[dict]:
     for sid, row in _skills.items():
         if row.get("tier") == "built-in" or row.get("deleted_at"):
             continue
+        if not _skill_visible(row, identity):
+            continue
         out.append(_skill_summary(sid, row))
     out.sort(key=lambda s: (_TIER_ORDER.get(s["tier"], 9), s["name"]))
     return out
 
 
-def get_skill(skill_id: str, builtins: list[dict]) -> dict | None:
-    """Full record (body + files) for the expandable card. None if unknown."""
+def get_skill(skill_id: str, builtins: list[dict], identity: Identity | None = None) -> dict | None:
+    """Full record (body + files) for the expandable card. None if unknown or
+    not visible to `identity` (same answer, so existence is never leaked)."""
     _load_skills()
     for b in builtins:
         if b["skill_id"] == skill_id:
@@ -345,23 +400,27 @@ def get_skill(skill_id: str, builtins: list[dict]) -> dict | None:
     row = _skills.get(skill_id)
     if not row or row.get("deleted_at") or row.get("tier") == "built-in":
         return None
+    if not _skill_visible(row, identity):
+        return None
     return {**_skill_summary(skill_id, row),
             "body": row.get("body", ""), "files": row.get("files") or {}}
 
 
 def install_skill(name: str, tier: str, description: str, source: str,
-                  body: str, files: dict) -> dict | None:
+                  body: str, files: dict, identity: Identity | None = None) -> dict | None:
     """Insert an org/user skill: untrusted + disabled until reviewed (Phase S
-    gate ships with install). Returns the summary, or None on a duplicate
-    (tier, name) — the UNIQUE constraint of the B1 schema."""
+    gate ships with install), stamped with the installer's identity. Returns
+    the summary, or None on a duplicate (tier, name) within the caller's
+    visible scope — the UNIQUE (tier, name, user_id, org_id) constraint of
+    the B1 schema."""
     _load_skills()
     for row in _skills.values():
         if (row.get("tier") == tier and row.get("name") == name
-                and not row.get("deleted_at")):
+                and not row.get("deleted_at") and _skill_visible(row, identity)):
             return None
     now = _now()
     skill_id = uuid.uuid4().hex  # server-generated, opaque (C3)
-    _skills[skill_id] = {
+    _skills[skill_id] = _stamp({
         "name": name,
         "tier": tier,
         "description": description,
@@ -373,20 +432,22 @@ def install_skill(name: str, tier: str, description: str, source: str,
         "created_at": now,
         "updated_at": now,
         "deleted_at": None,
-        "user_id": None,
-        "org_id": None,
-    }
+    }, identity)
     _save_skills()
     return _skill_summary(skill_id, _skills[skill_id])
 
 
-def set_skill_enabled(skill_id: str, enabled: bool, builtins: list[dict]) -> bool:
+def set_skill_enabled(skill_id: str, enabled: bool, builtins: list[dict],
+                      identity: Identity | None = None) -> bool:
     """Toggle a skill. For built-ins this upserts an override row keyed by the
-    deterministic builtin id. Returns False for unknown/deleted skills.
-    Trust gating (no enabling untrusted rows) is enforced in the route."""
+    deterministic builtin id. Returns False for unknown/deleted/not-visible
+    skills. Trust gating (no enabling untrusted rows) and the admin gate for
+    org rows are enforced in the route."""
     _load_skills()
     row = _skills.get(skill_id)
     if row and not row.get("deleted_at"):
+        if not _skill_visible(row, identity):
+            return False
         row["enabled"] = enabled
         row["updated_at"] = _now()
         _save_skills()
@@ -406,12 +467,16 @@ def set_skill_enabled(skill_id: str, enabled: bool, builtins: list[dict]) -> boo
     return False
 
 
-def set_skill_trust(skill_id: str, trust_state: str) -> bool:
+def set_skill_trust(skill_id: str, trust_state: str,
+                    identity: Identity | None = None) -> bool:
     """Review action: flip an org/user row's trust_state. Built-ins are
-    repo-managed and never pass through here (route returns 409)."""
+    repo-managed and never pass through here (route returns 409). False for
+    rows not visible to `identity`."""
     _load_skills()
     row = _skills.get(skill_id)
     if not row or row.get("deleted_at") or row.get("tier") == "built-in":
+        return False
+    if not _skill_visible(row, identity):
         return False
     row["trust_state"] = trust_state
     row["updated_at"] = _now()
@@ -419,11 +484,11 @@ def set_skill_trust(skill_id: str, trust_state: str) -> bool:
     return True
 
 
-def soft_delete_skill(skill_id: str) -> bool:
-    """Soft-delete an org/user row. Returns False for unknown/built-in."""
+def soft_delete_skill(skill_id: str, identity: Identity | None = None) -> bool:
+    """Soft-delete an org/user row. False for unknown/built-in/not-visible."""
     _load_skills()
     row = _skills.get(skill_id)
-    if not row or row.get("tier") == "built-in":
+    if not row or row.get("tier") == "built-in" or not _skill_visible(row, identity):
         return False
     row["deleted_at"] = _now()
     _save_skills()

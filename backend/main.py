@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 from dotenv import load_dotenv
 load_dotenv()
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel
@@ -34,6 +34,7 @@ from temporalio.service import RPCError
 
 from agent.skills import builtin_skill_records, parse_skill_md
 from backend import auth, store
+from backend.auth import Principal, get_principal
 from temporal.workflows import AgentWorkflow, WorkflowInput
 from temporal.activities import AgentProgress
 
@@ -218,6 +219,32 @@ def _backfill_legacy_identity() -> None:
 _backfill_legacy_identity()
 
 
+# ---------------------------------------------------------------------------
+# Tenancy helpers. Identity is resolved once per request (backend/auth.py)
+# and every store call / registry lookup below is scoped on it. With the flag
+# off `_ident` is None, which the seam treats as "no filtering" — so every
+# route is a byte-identical no-op relative to pre-auth behavior.
+# Unknown and unowned are answered identically (404): existence is never
+# confirmed for a resource the caller doesn't own.
+# ---------------------------------------------------------------------------
+
+def _ident(p: Principal) -> store.Identity | None:
+    return store.Identity(p.user_id, p.org_id) if auth.auth_enabled() else None
+
+
+def _run_owned(run_id: str, p: Principal) -> bool:
+    info = run_registry.get(run_id)
+    if info is None:
+        return False
+    ident = _ident(p)
+    if ident is None:
+        return True
+    return info.get("user_id") == ident.user_id and info.get("org_id") == ident.org_id
+
+
+_NOT_FOUND = {"error": "not found"}
+
+
 def _make_run_id(user_message: str) -> str:
     """Generate a human-readable run ID from the user's prompt."""
     words = re.sub(r"[^a-zA-Z0-9 ]", "", user_message).lower().split()[:6]
@@ -249,7 +276,13 @@ async def health():
 # ---------------------------------------------------------------------------
 
 @app.get("/artifacts/{run_id}/{filename}")
-async def download_artifact(run_id: str, filename: str, request: Request):
+async def download_artifact(run_id: str, filename: str, request: Request,
+                            p: Principal = Depends(get_principal)):
+    # Ownership first: a run the caller doesn't own is indistinguishable from
+    # one that doesn't exist. (Phase 5 moves this behind signed URLs because
+    # iframes/anchors can't send the bearer header.)
+    if not _run_owned(run_id, p):
+        return JSONResponse(_NOT_FOUND, status_code=404)
     # Resolve the requested path and confirm it stays inside ARTIFACT_BASE.
     # Guards against traversal via URL-encoded segments (e.g. run_id="..",
     # filename=".env"), which would otherwise escape to the project root.
@@ -277,10 +310,12 @@ async def download_artifact(run_id: str, filename: str, request: Request):
 # ---------------------------------------------------------------------------
 
 @app.get("/runs")
-async def list_runs():
-    """Return all known runs (newest first), sorted by directory mtime."""
+async def list_runs(p: Principal = Depends(get_principal)):
+    """Return the caller's runs (newest first), sorted by directory mtime."""
     runs = []
     for run_id, info in run_registry.items():
+        if not _run_owned(run_id, p):
+            continue
         artifact_dir = os.path.join(ARTIFACT_BASE, run_id)
         if os.path.isdir(artifact_dir):
             artifacts = [f for f in os.listdir(artifact_dir) if not f.startswith("~$") and not f.startswith(".")]
@@ -305,15 +340,15 @@ async def list_runs():
 # ---------------------------------------------------------------------------
 
 @app.get("/threads")
-async def list_threads():
-    """Non-deleted threads, newest first, for the sidebar."""
-    return store.list_threads(run_registry)
+async def list_threads(p: Principal = Depends(get_principal)):
+    """The caller's non-deleted threads, newest first, for the sidebar."""
+    return store.list_threads(run_registry, _ident(p))
 
 
 @app.get("/threads/{thread_id}")
-async def get_thread(thread_id: str):
+async def get_thread(thread_id: str, p: Principal = Depends(get_principal)):
     """A thread with its runs in order; clicking it loads the conversation."""
-    t = store.get_thread(thread_id, run_registry)
+    t = store.get_thread(thread_id, run_registry, _ident(p))
     if t is None:
         return JSONResponse({"error": "unknown thread"}, status_code=404)
     return t
@@ -324,22 +359,23 @@ class RenameThreadBody(BaseModel):
 
 
 @app.patch("/threads/{thread_id}")
-async def rename_thread(thread_id: str, body: RenameThreadBody):
+async def rename_thread(thread_id: str, body: RenameThreadBody,
+                        p: Principal = Depends(get_principal)):
     """Rename a thread (A1). Title is clamped to the same 80 chars as creation."""
     title = body.title.strip()[:80]
     if not title:
         return JSONResponse({"error": "empty title"}, status_code=422)
-    if not store.set_title(thread_id, title):
+    if not store.set_title(thread_id, title, _ident(p)):
         return JSONResponse({"error": "unknown thread"}, status_code=404)
     return {"thread_id": thread_id, "title": title}
 
 
 @app.delete("/threads/{thread_id}")
-async def delete_thread(thread_id: str):
+async def delete_thread(thread_id: str, p: Principal = Depends(get_principal)):
     """Soft-delete a thread (A1): hidden from listings, reversible in storage.
     Runs, event logs, and artifacts are retained; a run still in flight simply
     finishes into the hidden thread."""
-    if not store.soft_delete(thread_id):
+    if not store.soft_delete(thread_id, _ident(p)):
         return JSONResponse({"error": "unknown thread"}, status_code=404)
     return {"thread_id": thread_id, "deleted": True}
 
@@ -352,18 +388,39 @@ async def delete_thread(thread_id: str):
 # ---------------------------------------------------------------------------
 
 @app.get("/skills")
-async def list_skills():
-    """All tiers for the manager view: built-ins + org/user registry rows."""
-    return store.list_skills(builtin_skill_records())
+async def list_skills(p: Principal = Depends(get_principal)):
+    """All tiers for the manager view: built-ins + this org's org rows + this
+    member's user rows."""
+    return store.list_skills(builtin_skill_records(), _ident(p))
 
 
 @app.get("/skills/{skill_id}")
-async def get_skill(skill_id: str):
+async def get_skill(skill_id: str, p: Principal = Depends(get_principal)):
     """Full record (SKILL.md body + bundled files) for the expandable card."""
-    s = store.get_skill(skill_id, builtin_skill_records())
+    s = store.get_skill(skill_id, builtin_skill_records(), _ident(p))
     if s is None:
         return JSONResponse({"error": "unknown skill"}, status_code=404)
     return s
+
+
+async def _gate_skill_write(request: Request, p: Principal, tier: str) -> Principal:
+    """Authorization for mutating a skill row the caller can already SEE.
+
+    org-tier   -> admin only, and via the network-backed session check so a
+                  revoked admin is stopped immediately (auth.reverify_network
+                  also carries the org_skills/manage AuthorizationCheck, so
+                  Stytch's RBAC policy is the source of truth).
+    built-in   -> the enable override is project-wide, so admin only (local
+                  role check; no network — it's not a trust decision).
+    user-tier  -> ownership was already proven by visibility; nothing more.
+    No-op with the flag off (LEGACY carries stytch_admin).
+    """
+    if tier == "org":
+        auth.require_role(p, auth.ADMIN_ROLE)
+        return await auth.reverify_network(request, p)
+    if tier == "built-in":
+        auth.require_role(p, auth.ADMIN_ROLE)
+    return p
 
 
 class InstallSkillBody(BaseModel):
@@ -373,9 +430,11 @@ class InstallSkillBody(BaseModel):
 
 
 @app.post("/skills")
-async def install_skill(body: InstallSkillBody):
+async def install_skill(body: InstallSkillBody, p: Principal = Depends(get_principal)):
     """Install a skill from SKILL.md content. Spec violations are 422s (we
-    enforce what deepagents only warns about); lands untrusted + disabled."""
+    enforce what deepagents only warns about); lands untrusted + disabled and
+    stamped with the installer's identity. Any member may propose an org skill
+    (it can't seed until an admin trusts + enables it)."""
     if body.tier not in ("user", "org"):
         return JSONResponse({"error": "tier must be 'user' or 'org'"}, status_code=422)
     meta, err = parse_skill_md(body.body)
@@ -387,7 +446,7 @@ async def install_skill(body: InstallSkillBody):
             return JSONResponse({"error": f"invalid bundle path: {rel}"}, status_code=422)
     s = store.install_skill(
         name=meta["name"], tier=body.tier, description=meta["description"],
-        source="upload", body=body.body, files=body.files,
+        source="upload", body=body.body, files=body.files, identity=_ident(p),
     )
     if s is None:
         return JSONResponse({"error": "a skill with this name already exists in this tier"},
@@ -401,42 +460,56 @@ class PatchSkillBody(BaseModel):
 
 
 @app.patch("/skills/{skill_id}")
-async def patch_skill(skill_id: str, body: PatchSkillBody):
-    """Enable/disable a skill or flip its trust_state (the review action)."""
+async def patch_skill(skill_id: str, body: PatchSkillBody, request: Request,
+                      p: Principal = Depends(get_principal)):
+    """Enable/disable a skill or flip its trust_state (the review action).
+    Visibility (404) is checked before authorization (403) so an org member
+    learns nothing about rows outside their scope."""
     builtins = builtin_skill_records()
-    s = store.get_skill(skill_id, builtins)
+    ident = _ident(p)
+    s = store.get_skill(skill_id, builtins, ident)
     if s is None:
         return JSONResponse({"error": "unknown skill"}, status_code=404)
+    if body.trust_state is not None and body.trust_state not in ("trusted", "untrusted"):
+        return JSONResponse({"error": "trust_state must be 'trusted' or 'untrusted'"},
+                            status_code=422)
+    if body.trust_state is not None and s["tier"] == "built-in":
+        return JSONResponse({"error": "built-in skills are managed in the repo"},
+                            status_code=409)
+    if body.trust_state is not None or body.enabled is not None:
+        await _gate_skill_write(request, p, s["tier"])
     if body.trust_state is not None:
-        if body.trust_state not in ("trusted", "untrusted"):
-            return JSONResponse({"error": "trust_state must be 'trusted' or 'untrusted'"},
-                                status_code=422)
-        if s["tier"] == "built-in":
-            return JSONResponse({"error": "built-in skills are managed in the repo"},
-                                status_code=409)
-        store.set_skill_trust(skill_id, body.trust_state)
+        store.set_skill_trust(skill_id, body.trust_state, ident)
         if body.trust_state == "untrusted":
             # Revoking trust also disables — an untrusted skill never seeds.
-            store.set_skill_enabled(skill_id, False, builtins)
+            store.set_skill_enabled(skill_id, False, builtins, ident)
     if body.enabled is not None:
-        current = store.get_skill(skill_id, builtins)
+        current = store.get_skill(skill_id, builtins, ident)
         if body.enabled and current["trust_state"] != "trusted":
             return JSONResponse({"error": "skill needs review before it can be enabled"},
                                 status_code=409)
-        store.set_skill_enabled(skill_id, body.enabled, builtins)
-    out = store.get_skill(skill_id, builtins)
+        store.set_skill_enabled(skill_id, body.enabled, builtins, ident)
+    out = store.get_skill(skill_id, builtins, ident)
     out.pop("body", None)
     out.pop("files", None)
     return out
 
 
 @app.delete("/skills/{skill_id}")
-async def delete_skill(skill_id: str):
-    """Soft-delete an org/user skill; built-ins are repo-managed (409)."""
-    if any(b["skill_id"] == skill_id for b in builtin_skill_records()):
+async def delete_skill(skill_id: str, request: Request,
+                       p: Principal = Depends(get_principal)):
+    """Soft-delete an org/user skill; built-ins are repo-managed (409).
+    Org rows: admin + network-backed check. User rows: ownership."""
+    builtins = builtin_skill_records()
+    if any(b["skill_id"] == skill_id for b in builtins):
         return JSONResponse({"error": "built-in skills are managed in the repo"},
                             status_code=409)
-    if not store.soft_delete_skill(skill_id):
+    ident = _ident(p)
+    s = store.get_skill(skill_id, builtins, ident)
+    if s is None:
+        return JSONResponse({"error": "unknown skill"}, status_code=404)
+    await _gate_skill_write(request, p, s["tier"])
+    if not store.soft_delete_skill(skill_id, ident):
         return JSONResponse({"error": "unknown skill"}, status_code=404)
     return {"skill_id": skill_id, "deleted": True}
 
@@ -453,16 +526,18 @@ class StartRunBody(BaseModel):
 def _v1_envelope(offset: int, evt: AgentProgress, run_id: str) -> dict:
     """Map an internal AgentProgress to the versioned, discriminated v1 event.
 
-    Identity fields user_id/org_id are present but null until Mandate 2 —
-    reserved now so stored events and emitters never need a later migration.
+    Identity fields user_id/org_id come from the run's registry row (stamped
+    at creation by the API's resolved principal). They are null for runs
+    created with the flag off, which is the pre-auth wire shape exactly.
     """
+    info = run_registry.get(run_id) or {}
     base = {
         "v": 1,
         "run_id": run_id,
         "offset": offset,
         "ts": evt.ts,
-        "user_id": None,
-        "org_id": None,
+        "user_id": info.get("user_id"),
+        "org_id": info.get("org_id"),
     }
     t = evt.type
     if t == "run_start":
@@ -497,30 +572,42 @@ def _v1_envelope(offset: int, evt: AgentProgress, run_id: str) -> dict:
     return base
 
 
-async def _start_agent_run(client: Client, user_message: str, requested_thread: str | None):
+async def _start_agent_run(client: Client, user_message: str, requested_thread: str | None,
+                           p: Principal):
     """Start a new agent workflow. Returns (run_id, workflow_id, thread_id).
 
     thread_id is server-generated and unguessable; a client may continue a
-    conversation only by echoing a previously-issued id (validated), never by
-    supplying an arbitrary one.
+    conversation only by echoing a previously-issued id that it OWNS (known
+    AND scoped to the principal), never by supplying an arbitrary one. An
+    unknown or unowned id silently starts a fresh thread — same outcome for
+    both, so nothing is confirmed about other tenants' ids.
     """
     run_id = _make_run_id(user_message)
     workflow_id = f"agent-{run_id}"
+    ident = _ident(p)
     known_threads = {
         info.get("thread_id") for info in run_registry.values() if info.get("thread_id")
     }
-    thread_id = requested_thread if requested_thread in known_threads else uuid.uuid4().hex
+    continue_ok = (
+        requested_thread in known_threads
+        and (ident is None or store.owns_thread(requested_thread, ident))
+    )
+    thread_id = requested_thread if continue_ok else uuid.uuid4().hex
     run_registry[run_id] = {
         "workflow_id": workflow_id,
         "user_message": user_message,
         "status": "running",
         "thread_id": thread_id,
         "created_at": datetime.now().astimezone().isoformat(),
+        # Identity resolved once in the API; the worker trusts these via
+        # WorkflowInput (Phase 3) and never re-derives them.
+        "user_id": ident.user_id if ident else None,
+        "org_id": ident.org_id if ident else None,
     }
     _save_registry()
     # Thread materializes on this first message (A4); continuing a thread just
     # bumps its updated_at.
-    store.ensure_thread(thread_id, user_message, run_id)
+    store.ensure_thread(thread_id, user_message, run_id, ident)
     store.touch_thread(thread_id)
     await client.start_workflow(
         AgentWorkflow.run,
@@ -574,16 +661,18 @@ def _finalize_interrupted(run_id: str, status) -> None:
     state = _TERMINAL_STATE.get(status, "error")
     base = _current_max_offset(run_id)
     ts = datetime.now(timezone.utc).isoformat()
+    info = run_registry.get(run_id) or {}
+    uid, oid = info.get("user_id"), info.get("org_id")
     _save_event(run_id, {
         "v": 1, "run_id": run_id, "offset": base + 1, "ts": ts,
-        "user_id": None, "org_id": None, "type": "text.delta",
+        "user_id": uid, "org_id": oid, "type": "text.delta",
         "text": "\n\n> ⚠️ *The live stream for this run was interrupted by a "
                 "backend restart, so the transcript above may be incomplete. "
                 f"The run finished on the server with status: {state}.*\n",
     })
     _save_event(run_id, {
         "v": 1, "run_id": run_id, "offset": base + 2, "ts": ts,
-        "user_id": None, "org_id": None, "type": "run.finished",
+        "user_id": uid, "org_id": oid, "type": "run.finished",
         "state": state, "note": "backfilled after backend restart",
     })
     if run_id in run_registry:
@@ -629,10 +718,10 @@ async def _on_startup() -> None:
 
 
 @app.post("/runs")
-async def create_run(body: StartRunBody):
+async def create_run(body: StartRunBody, p: Principal = Depends(get_principal)):
     client = await get_temporal_client()
     run_id, workflow_id, thread_id = await _start_agent_run(
-        client, body.message, body.thread_id
+        client, body.message, body.thread_id, p
     )
     # Persist events in the background so the run is replayable after it ends.
     asyncio.create_task(_persist_run(client, workflow_id, run_id))
@@ -640,8 +729,8 @@ async def create_run(body: StartRunBody):
 
 
 @app.post("/runs/{run_id}/cancel")
-async def cancel_run(run_id: str):
-    if run_id not in run_registry:
+async def cancel_run(run_id: str, p: Principal = Depends(get_principal)):
+    if not _run_owned(run_id, p):
         return JSONResponse({"error": "unknown run"}, status_code=404)
     client = await get_temporal_client()
     handle = client.get_workflow_handle(run_registry[run_id]["workflow_id"])
@@ -656,7 +745,7 @@ KEEPALIVE_SECS = 15
 
 
 @app.get("/runs/{run_id}/stream")
-async def stream_run(run_id: str, request: Request):
+async def stream_run(run_id: str, request: Request, p: Principal = Depends(get_principal)):
     """SSE stream of v1 events. id: = offset; Last-Event-ID resumes at offset+1.
 
     While the workflow is RUNNING we subscribe to the durable Temporal stream
@@ -665,7 +754,7 @@ async def stream_run(run_id: str, request: Request):
     the conversation from that JSONL instead — which is what makes Past Runs
     render for completed runs.
     """
-    if run_id not in run_registry:
+    if not _run_owned(run_id, p):
         return JSONResponse({"error": "unknown run"}, status_code=404)
     client = await get_temporal_client()
     workflow_id = run_registry[run_id]["workflow_id"]
