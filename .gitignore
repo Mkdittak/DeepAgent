@@ -29,6 +29,7 @@ artifacts/*
 .DS_Store
 Thumbs.db
 desktop.ini
+*.lnk
 
 # Temporal
 *.db
