@@ -113,3 +113,29 @@ a `manage` action and confirm `stytch_admin` covers it" is what makes
 
 Response on the network path: `AuthenticateResponse.verdict: AuthorizationVerdict | None`
 with `.authorized: bool`, `.granting_roles: list[str]` (`models/sessions.py:66-74`).
+
+## Frontend — verified surface (`@stytch/react` 20.3.0)
+
+Read from `frontend/node_modules/@stytch/react/dist/types/b2b/index.d.ts`. The
+React package bundles the whole client; `@stytch/vanilla-js` is NOT a
+dependency of it and is not installed. Line refs marked `vanilla-js/...` were
+read from that package's identical 6.3.0 type files before it was removed.
+
+| Item | Verified value | Source |
+|---|---|---|
+| Import path | `@stytch/react/b2b` (package `exports["./b2b"]`) re-exports everything below | `react/package.json:42` |
+| Client factory | `createStytchB2BClient(rawPublicToken: string, options?) -> StytchB2BClient` | `vanilla-js/dist/types/b2b/index.headless.d.ts:20` |
+| Provider | `<StytchB2BProvider stytch={client}>` | `react/.../b2b/index.d.ts:506` |
+| Login UI | `<StytchB2B config={StytchB2BUIConfig} styles? callbacks? />` (client comes from the provider) | `react/.../b2b/index.d.ts:131-136` |
+| `StytchB2BUIConfig` | `{ products: StytchB2BProduct[], authFlowType, sessionOptions: { sessionDurationMinutes }, emailMagicLinksOptions?, oauthOptions?, ... }` | `vanilla-js/.../themes-*.d.ts:189`, `GoogleOneTapClient-*.d.ts:58-66`, `DFPProtectedAuthProvider-*.d.ts:6502` |
+| Products | `B2BProducts.emailMagicLinks`, `B2BProducts.oauth` are product OBJECTS in this version (`{id: 'emailMagicLinks', screens...}`), not string enums | `react/.../b2b/index.d.ts:24-26`, `themes-*.d.ts:106-112` |
+| Flow | `AuthFlowType.Discovery` (`"Discovery"`) | `GoogleOneTapClient-*.d.ts:1151-1156` |
+| Magic links opts | `{ discoveryRedirectURL?, loginRedirectURL?, signupRedirectURL?, ... }` | `GoogleOneTapClient-*.d.ts:1176-1180` |
+| OAuth opts | `{ providers: [{ type: B2BOAuthProviders.Google }], discoveryRedirectURL? }`; `B2BOAuthProviders.Google === "google"` | `GoogleOneTapClient-*.d.ts:1164-1171, 1221-1251` |
+| Session tokens | `client.session.getTokens() -> { session_token, session_jwt } \| null` (null when logged out or HttpOnly-cookie mode) | `DFPProtectedAuthProvider-*.d.ts:469-551` |
+| Logout | `client.session.revoke(): Promise<...>` | `DFPProtectedAuthProvider-*.d.ts:606` |
+| Switch org in place | `client.session.exchange({ organization_id, session_duration_minutes? })` exists, but discovering the member's OTHER orgs needs a discovery intermediate session, so the UI switches via revoke + re-login | `GoogleOneTapClient-*.d.ts:971-975`, `DFPProtectedAuthProvider-*.d.ts:2015-2029` |
+| Hooks | `useStytchMemberSession() -> { session: MemberSession \| null, isInitialized, fromCache }`; `useStytchOrganization() -> { organization }` with `.organization_name`; `useStytchMember() -> { member }` with `.email_address`; `useStytchB2BClient()` | `react/.../b2b/index.d.ts:202-250, 354, 410-440`; `DFPProtectedAuthProvider-*.d.ts:1471` |
+| Type gotcha | `@stytch/react` bundles its own copy of the client types; importing `StytchB2BClient` from `@stytch/vanilla-js/b2b` is a different nominal type (private `_subscriptionService`). Use `ReturnType<typeof createStytchB2BClient>`. | build error, fixed in `frontend/src/auth/stytch.ts` |
+
+App code imports only from `@stytch/react/b2b`.

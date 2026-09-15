@@ -1,4 +1,6 @@
 import { useStore } from "../store/store";
+import { AUTH_CONFIGURED } from "../auth/stytch";
+import { AccountMenu } from "./AccountMenu";
 import "./Header.css";
 
 type Props = { onToggleSidebar: () => void };
@@ -12,6 +14,9 @@ export function Header({ onToggleSidebar }: Props) {
       </button>
       <span className="da-logo">DeepAgent</span>
       <span className={`da-dot ${connected ? "is-on" : ""}`} title={connected ? "connected" : "idle"} />
+      <span className="da-header-spacer" />
+      {/* AccountMenu uses Stytch hooks, so it only mounts when the provider does. */}
+      {AUTH_CONFIGURED && <AccountMenu />}
     </header>
   );
 }

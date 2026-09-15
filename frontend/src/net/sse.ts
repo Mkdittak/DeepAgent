@@ -1,4 +1,5 @@
 import { API_BASE } from "./api";
+import { authHeaders } from "../auth/stytch";
 import type { V1Event } from "../store/types";
 
 // fetch-based SSE reader. Unlike native EventSource, this lets us set the
@@ -19,7 +20,10 @@ export function openRunStream(
   let stopped = false;
 
   (async () => {
-    const headers: Record<string, string> = {};
+    // Bearer + session token ride along with the resume cursor. This is why
+    // the reader is fetch-based rather than EventSource: EventSource can't
+    // set either header.
+    const headers: Record<string, string> = { ...authHeaders() };
     if (lastEventId != null && lastEventId >= 0) headers["Last-Event-ID"] = String(lastEventId);
 
     let res: Response;

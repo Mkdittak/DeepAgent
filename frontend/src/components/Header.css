@@ -35,3 +35,60 @@
 }
 .da-menu-icon::before { content: ""; position: absolute; top: -5px; }
 .da-menu-icon::after { content: ""; position: absolute; top: 5px; }
+
+/* ---- account menu (auth-configured builds only) ---- */
+.da-header-spacer { flex: 1; }
+.da-account { position: relative; }
+.da-account-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+  padding: 6px 10px;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--da-fg);
+  background: none;
+  border: 1px solid var(--da-border);
+  border-radius: 8px;
+  cursor: pointer;
+}
+.da-account-btn:hover { background: var(--da-surface-2); }
+.da-account-org { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.da-account-caret { color: var(--da-fg-muted); font-size: 11px; }
+.da-account-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 30;
+  min-width: 200px;
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  background: var(--da-bg);
+  border: 1px solid var(--da-border);
+  border-radius: 10px;
+  box-shadow: var(--da-shadow);
+}
+.da-account-menu button {
+  text-align: left;
+  padding: 7px 10px;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--da-fg);
+  background: none;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.da-account-menu button:hover { background: var(--da-surface-2); }
+.da-account-menu button:disabled { opacity: 0.5; cursor: default; }
+.da-account-menu button.is-danger { color: var(--da-err); }
+.da-account-menu .da-menu-label {
+  padding: 6px 10px 4px;
+  font-size: 12px;
+  color: var(--da-fg-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
