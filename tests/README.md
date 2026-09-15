@@ -34,12 +34,12 @@ Standalone: each script builds an isolated FastAPI `TestClient` against a temp
 (shared setup in `auth_harness.py`, not a test). Dummy Stytch keys are set in
 the harness, so no `.env` is needed. Run from the repo root:
 ```
-.venv\Scripts\python.exe tests	est_idor.py        # B/other-org asking for A's thread/run/stream/artifact/skill -> 404, never 403, never data
-.venv\Scripts\python.exe tests	est_forged_jwt.py  # real get_principal: missing/garbage/attacker-signed/wrong-project/expired JWT -> 401; valid -> Principal
-.venv\Scripts\python.exe tests	est_org_scope.py   # org A's skills invisible to org B in the API listing AND the worker seed
-.venv\Scripts\python.exe tests	est_admin_gate.py  # member cannot trust/enable/delete an org skill (403); admin can via network reverify; user-tier = ownership
-.venv\Scripts\python.exe tests	est_quota.py       # N+1th run in a day for one org -> 429 + reset_at + Retry-After
-.venv\Scripts\python.exe tests	est_flag_off.py    # AUTH_ENABLED=false: every endpoint behaves exactly pre-auth (no scoping/gate/quota/signing)
+.venv\Scripts\python.exe tests\test_idor.py        # B/other-org asking for A's thread/run/stream/artifact/skill -> 404, never 403, never data
+.venv\Scripts\python.exe tests\test_forged_jwt.py  # real get_principal: missing/garbage/attacker-signed/wrong-project/expired JWT -> 401; valid -> Principal
+.venv\Scripts\python.exe tests\test_org_scope.py   # org A's skills invisible to org B in the API listing AND the worker seed
+.venv\Scripts\python.exe tests\test_admin_gate.py  # member cannot trust/enable/delete an org skill (403); admin can via network reverify; user-tier = ownership
+.venv\Scripts\python.exe tests\test_quota.py       # N+1th run in a day for one org -> 429 + reset_at + Retry-After
+.venv\Scripts\python.exe tests\test_flag_off.py    # AUTH_ENABLED=false: every endpoint behaves exactly pre-auth (no scoping/gate/quota/signing)
 ```
 `test_forged_jwt.py` signs real RS256 JWTs with a throwaway keypair and swaps
 the client's JWKS lookup + network fallback for in-process fakes, so it
