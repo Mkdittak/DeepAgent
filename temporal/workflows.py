@@ -18,10 +18,18 @@ with workflow.unsafe.imports_passed_through():
 
 @dataclass
 class WorkflowInput:
-    """Input to the agent workflow."""
+    """Input to the agent workflow.
+
+    user_id/org_id are the identity the API resolved ONCE from the caller's
+    Stytch session (backend/auth.py). The worker trusts these values and never
+    re-derives identity from anything a client sent. None = pre-auth run
+    (AUTH_ENABLED=false), which seeds skills exactly as before.
+    """
     run_id: str
     user_message: str
     thread_id: str | None = None  # conversation thread for multi-turn memory (M0)
+    user_id: str | None = None    # Stytch member_id, resolved in the API
+    org_id: str | None = None     # Stytch organization_id, resolved in the API
 
 
 @workflow.defn
@@ -44,6 +52,8 @@ class AgentWorkflow:
                 run_id=input.run_id,
                 user_message=input.user_message,
                 thread_id=input.thread_id,
+                user_id=input.user_id,
+                org_id=input.org_id,
             ),
             start_to_close_timeout=timedelta(minutes=15),
             heartbeat_timeout=timedelta(minutes=5),

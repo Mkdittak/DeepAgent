@@ -11,6 +11,11 @@ own `RunContext` with no cross-talk.
 
 `thread_id` is carried here too so conversational memory (M0) flows down the
 same path without adding a second plumbing change.
+
+`user_id` / `org_id` are the tenant identity the API resolved from the
+caller's session and passed through WorkflowInput. They are informational
+inside the worker (skill seeding, future per-tenant tool policy); the worker
+never verifies or re-derives them.
 """
 
 from __future__ import annotations
@@ -30,6 +35,8 @@ class RunContext:
     progress_cb: Optional[ProgressCallback] = None
     file_cb: Optional[FileCallback] = None  # emits file.created at write time
     thread_id: Optional[str] = None  # set by the memory step (M0)
+    user_id: Optional[str] = None    # Stytch member_id (from WorkflowInput)
+    org_id: Optional[str] = None     # Stytch organization_id (from WorkflowInput)
 
 
 _run_context: contextvars.ContextVar[Optional[RunContext]] = contextvars.ContextVar(

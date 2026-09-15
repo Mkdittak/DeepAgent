@@ -206,25 +206,48 @@ def builtin_skill_records() -> list[dict]:
     return records
 
 
-def _registry_rows() -> dict[str, dict]:
-    """Fresh read of the skill registry (worker side, read-only)."""
+def _row_in_scope(row: dict, user_id: str | None, org_id: str | None) -> bool:
+    """Tenancy filter for org/user rows. No identity (pre-auth run) = every
+    row, exactly as before. Otherwise an org row must belong to this org and a
+    user row to this member in this org. Mirrors backend/store._skill_visible;
+    built-in override rows are project-wide and pass unconditionally."""
+    if user_id is None and org_id is None:
+        return True
+    tier = row.get("tier")
+    if tier == "org":
+        return row.get("org_id") == org_id
+    if tier == "user":
+        return row.get("user_id") == user_id and row.get("org_id") == org_id
+    return True
+
+
+def _registry_rows(user_id: str | None = None, org_id: str | None = None) -> dict[str, dict]:
+    """Fresh read of the skill registry (worker side, read-only), narrowed to
+    the rows visible to (user_id, org_id). Both None = unfiltered."""
     try:
         with open(SKILL_REGISTRY_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
-        return data if isinstance(data, dict) else {}
     except (OSError, json.JSONDecodeError):
         return {}
+    if not isinstance(data, dict):
+        return {}
+    return {
+        sid: row for sid, row in data.items()
+        if isinstance(row, dict) and _row_in_scope(row, user_id, org_id)
+    }
 
 
-def seed_files() -> dict[str, str]:
+def seed_files(user_id: str | None = None, org_id: str | None = None) -> dict[str, str]:
     """Full {virtual_path: content} seed across tiers for the invoke input.
 
     Built-ins from disk minus any registry disable-override, plus org/user
     registry rows that are BOTH enabled AND trusted — an untrusted skill is
     never seeded, not even its description (Phase S: exclusion, not framing).
+    With an identity, only this org's org rows and this member's user rows
+    are considered; the identity comes from WorkflowInput and nowhere else.
     scripts/ and path-traversing file keys never reach agent state.
     """
-    rows = _registry_rows()
+    rows = _registry_rows(user_id, org_id)
     disabled_builtins = {
         r.get("name")
         for r in rows.values()

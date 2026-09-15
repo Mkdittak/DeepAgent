@@ -611,7 +611,11 @@ async def _start_agent_run(client: Client, user_message: str, requested_thread: 
     store.touch_thread(thread_id)
     await client.start_workflow(
         AgentWorkflow.run,
-        WorkflowInput(run_id=run_id, user_message=user_message, thread_id=thread_id),
+        WorkflowInput(
+            run_id=run_id, user_message=user_message, thread_id=thread_id,
+            user_id=ident.user_id if ident else None,
+            org_id=ident.org_id if ident else None,
+        ),
         id=workflow_id,
         task_queue=TASK_QUEUE,
     )

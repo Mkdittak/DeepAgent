@@ -30,6 +30,10 @@ class AgentInput:
     run_id: str
     user_message: str
     thread_id: str | None = None  # conversation thread for multi-turn memory (M0)
+    # Identity as resolved by the API (WorkflowInput). Trusted as-is; the
+    # worker has no session to verify and must not try. None = pre-auth run.
+    user_id: str | None = None
+    org_id: str | None = None
 
 
 @dataclass
@@ -184,6 +188,8 @@ async def run_deep_agent(input: AgentInput) -> str:
             progress_cb=_on_tool_progress,
             file_cb=_on_file,
             thread_id=input.thread_id,
+            user_id=input.user_id,
+            org_id=input.org_id,
         ))
 
         def flush_tokens():
@@ -203,12 +209,14 @@ async def run_deep_agent(input: AgentInput) -> str:
             # Seed Agent Skills into the virtual FS (StateBackend reads the
             # `files` state channel): built-ins from disk + enabled AND
             # trusted org/user rows from the skill registry, re-read fresh
-            # each run. The channel's dict-merge reducer refreshes skill
+            # each run, narrowed to THIS run's tenant (this org's org rows +
+            # this member's user rows) using only the identity carried in
+            # AgentInput. The channel's dict-merge reducer refreshes skill
             # files in ongoing threads. scripts/ are never seeded
             # (instruction-only v1).
             from agent.skills import seed_files, skill_index
             from deepagents.backends.utils import create_file_data
-            skill_seed = seed_files()
+            skill_seed = seed_files(user_id=input.user_id, org_id=input.org_id)
             skills_by_path = skill_index(skill_seed)
             skills_activated: set[str] = set()  # dedupe skill.activated per run
             async for ev in agent.astream_events(
