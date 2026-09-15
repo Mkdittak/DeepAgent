@@ -3,7 +3,7 @@ real Stytch sessions minted through the server API. Needs Temporal + worker +
 backend up with AUTH_ENABLED=true and real STYTCH_* keys in .env; makes 4 real
 agent runs (Gemini).
 
-Run (repo root): .venv\Scripts\python.exe tests\proof_auth_live.py
+Run (repo root): .venv\\Scripts\\python.exe tests\\proof_auth_live.py
 Env: QA_BASE_EMAIL (default: the repo owner's Gmail; plus-addresses are derived
 from it), QA_PASSWORD (else generated once and kept in artifacts/.qa_password.txt).
 
