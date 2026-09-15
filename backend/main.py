@@ -12,12 +12,17 @@ Endpoints:
 
 import asyncio
 import contextlib
+import hashlib
+import hmac
 import json
 import logging
 import os
 import re
+import secrets
+import time
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from urllib.parse import quote
 
 logger = logging.getLogger(__name__)
 
@@ -245,6 +250,105 @@ def _run_owned(run_id: str, p: Principal) -> bool:
 _NOT_FOUND = {"error": "not found"}
 
 
+# ---------------------------------------------------------------------------
+# Signed artifact URLs. <iframe>/<a> can't send the bearer header, so an
+# authenticated call mints a short-lived HMAC token and the artifact route
+# verifies it instead. Ownership is proven at mint time (the caller must own
+# the run); the token binds run_id + filename + expiry to this backend's
+# secret, so it can't be reused for another file or after expiry.
+# Flag off: tokens are neither minted nor required (pre-auth behavior).
+# ---------------------------------------------------------------------------
+
+ARTIFACT_SIGN_TTL_SECS = int(os.environ.get("ARTIFACT_SIGN_TTL_SECS", "60"))
+# Set ARTIFACT_SIGNING_SECRET to keep signatures valid across restarts /
+# replicas. Unset -> a random per-process key (outstanding 60s links die on
+# restart, which is acceptable for dev/staging).
+_ARTIFACT_SECRET = (os.environ.get("ARTIFACT_SIGNING_SECRET") or secrets.token_hex(32)).encode()
+
+
+def _artifact_sig(run_id: str, filename: str, exp: int) -> str:
+    msg = f"{run_id}\n{filename}\n{exp}".encode("utf-8")
+    return hmac.new(_ARTIFACT_SECRET, msg, hashlib.sha256).hexdigest()
+
+
+def _sign_artifact(run_id: str, filename: str) -> tuple[str, int]:
+    """Return (query_string, exp) for a ~TTL-second link."""
+    exp = int(time.time()) + ARTIFACT_SIGN_TTL_SECS
+    return f"exp={exp}&sig={_artifact_sig(run_id, filename, exp)}", exp
+
+
+def _artifact_sig_ok(run_id: str, filename: str, exp_s: str | None, sig: str | None) -> bool:
+    if not exp_s or not sig or not exp_s.isdigit():
+        return False
+    exp = int(exp_s)
+    if time.time() > exp:
+        return False
+    return hmac.compare_digest(_artifact_sig(run_id, filename, exp), sig)
+
+
+def _resolve_artifact(run_id: str, filename: str) -> str | None:
+    """Realpath containment (the pre-existing traversal guard) + existence.
+    None for anything outside ARTIFACT_BASE or missing — both are 404."""
+    base = os.path.realpath(ARTIFACT_BASE)
+    path = os.path.realpath(os.path.join(base, run_id, filename))
+    if path != base and not path.startswith(base + os.sep):
+        return None
+    if not os.path.isfile(path):
+        return None
+    return path
+
+
+# ---------------------------------------------------------------------------
+# Per-org daily run quota (flag on only). Counted from the registry rows so it
+# needs no new store; "today" is the server's local calendar day, matching
+# the created_at stamps.
+# ---------------------------------------------------------------------------
+
+RUN_QUOTA_PER_ORG_PER_DAY = int(os.environ.get("RUN_QUOTA_PER_ORG_PER_DAY", "100"))
+# Per-run agent step budget, carried in WorkflowInput so it's configurable
+# per run without a worker deploy. Was a hardcoded 30 in the activity.
+AGENT_RECURSION_LIMIT = int(os.environ.get("AGENT_RECURSION_LIMIT", "15"))
+
+
+def _quota_status(org_id: str, now: datetime | None = None) -> tuple[int, datetime]:
+    """(runs this org created today, next local midnight)."""
+    now = now or datetime.now().astimezone()
+    today = now.date()
+    used = 0
+    for info in run_registry.values():
+        if info.get("org_id") != org_id:
+            continue
+        raw = info.get("created_at")
+        if not raw:
+            continue
+        try:
+            created = datetime.fromisoformat(raw)
+        except ValueError:
+            continue
+        if created.tzinfo is not None:
+            created = created.astimezone(now.tzinfo)
+        if created.date() == today:
+            used += 1
+    reset_at = datetime.combine(today + timedelta(days=1), datetime.min.time(), tzinfo=now.tzinfo)
+    return used, reset_at
+
+
+def _quota_exceeded(p: Principal) -> JSONResponse | None:
+    """429 with the reset time when the org is at cap; None otherwise.
+    No-op with the flag off."""
+    if not auth.auth_enabled():
+        return None
+    used, reset_at = _quota_status(p.org_id)
+    if used < RUN_QUOTA_PER_ORG_PER_DAY:
+        return None
+    retry = max(1, int((reset_at - datetime.now().astimezone()).total_seconds()))
+    return JSONResponse(
+        {"error": "daily run quota reached", "limit": RUN_QUOTA_PER_ORG_PER_DAY,
+         "used": used, "reset_at": reset_at.isoformat()},
+        status_code=429, headers={"Retry-After": str(retry)},
+    )
+
+
 def _make_run_id(user_message: str) -> str:
     """Generate a human-readable run ID from the user's prompt."""
     words = re.sub(r"[^a-zA-Z0-9 ]", "", user_message).lower().split()[:6]
@@ -275,23 +379,35 @@ async def health():
 # Artifact download
 # ---------------------------------------------------------------------------
 
-@app.get("/artifacts/{run_id}/{filename}")
-async def download_artifact(run_id: str, filename: str, request: Request,
-                            p: Principal = Depends(get_principal)):
-    # Ownership first: a run the caller doesn't own is indistinguishable from
-    # one that doesn't exist. (Phase 5 moves this behind signed URLs because
-    # iframes/anchors can't send the bearer header.)
-    if not _run_owned(run_id, p):
+@app.get("/artifacts/{run_id}/{filename}/sign")
+async def sign_artifact(run_id: str, filename: str, p: Principal = Depends(get_principal)):
+    """Authenticated: mint a short-lived signed URL for an artifact the caller
+    owns. Ownership, traversal containment and existence are all checked HERE,
+    at mint time; unowned/unknown/outside-base are the same 404."""
+    if not _run_owned(run_id, p) or _resolve_artifact(run_id, filename) is None:
         return JSONResponse(_NOT_FOUND, status_code=404)
+    qs, exp = _sign_artifact(run_id, filename)
+    return {"url": f"/artifacts/{quote(run_id, safe='')}/{quote(filename, safe='')}?{qs}",
+            "expires_at": exp}
+
+
+@app.get("/artifacts/{run_id}/{filename}")
+async def download_artifact(run_id: str, filename: str, request: Request):
+    """Serve an artifact. No bearer here (iframes/anchors can't send one):
+    with auth on, a valid signed query (exp + sig from /sign) is required and
+    stands in for ownership; a missing/expired/forged signature is a 404 so
+    nothing about the file is confirmed. With auth off, unchanged."""
+    if auth.auth_enabled():
+        q = request.query_params
+        if not _artifact_sig_ok(run_id, filename, q.get("exp"), q.get("sig")):
+            return JSONResponse(_NOT_FOUND, status_code=404)
     # Resolve the requested path and confirm it stays inside ARTIFACT_BASE.
     # Guards against traversal via URL-encoded segments (e.g. run_id="..",
     # filename=".env"), which would otherwise escape to the project root.
-    base = os.path.realpath(ARTIFACT_BASE)
-    path = os.path.realpath(os.path.join(base, run_id, filename))
-    if path != base and not path.startswith(base + os.sep):
-        return JSONResponse({"error": "not found"}, status_code=404)
-    if not os.path.isfile(path):
-        return JSONResponse({"error": "not found"}, status_code=404)
+    # Re-applied on every serve even though /sign already checked it.
+    path = _resolve_artifact(run_id, filename)
+    if path is None:
+        return JSONResponse(_NOT_FOUND, status_code=404)
     ext = os.path.splitext(filename)[1].lower()
     want_download = request.query_params.get("download") in ("1", "true", "yes")
     # HTML/HTM is served INLINE (the sandboxed iframe needs it) UNLESS the caller
@@ -615,6 +731,7 @@ async def _start_agent_run(client: Client, user_message: str, requested_thread: 
             run_id=run_id, user_message=user_message, thread_id=thread_id,
             user_id=ident.user_id if ident else None,
             org_id=ident.org_id if ident else None,
+            recursion_limit=AGENT_RECURSION_LIMIT,
         ),
         id=workflow_id,
         task_queue=TASK_QUEUE,
@@ -723,6 +840,9 @@ async def _on_startup() -> None:
 
 @app.post("/runs")
 async def create_run(body: StartRunBody, p: Principal = Depends(get_principal)):
+    over = _quota_exceeded(p)
+    if over is not None:
+        return over
     client = await get_temporal_client()
     run_id, workflow_id, thread_id = await _start_agent_run(
         client, body.message, body.thread_id, p

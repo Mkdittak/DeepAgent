@@ -1,6 +1,6 @@
 import { memo, useEffect, useRef, useState } from "react";
 import type { Block } from "../../store/types";
-import { API_BASE } from "../../net/api";
+import { signArtifactUrl } from "../../net/api";
 import "./ArtifactBlock.css";
 
 type Props = { block: Extract<Block, { kind: "artifact" }> };
@@ -29,22 +29,68 @@ const ICON: Record<string, string> = {
   ".pdf": "📄",
 };
 
-// url may be relative (from file.created) or absolute — normalize against API.
-function fullUrl(url: string): string {
-  return url.startsWith("http") ? url : `${API_BASE}${url}`;
+// block.url is "/artifacts/<run_id>/<filename>" (relative, from file.created
+// or the run.finished artifacts list) or an absolute form of the same path.
+// The run_id + filename pair is what the signing endpoint takes.
+const ARTIFACT_PATH = /\/artifacts\/([^/?#]+)\/([^/?#]+)/;
+function parseArtifact(url: string, fallbackName: string): { runId: string; filename: string } | null {
+  const m = ARTIFACT_PATH.exec(url);
+  if (!m) return null;
+  try {
+    return { runId: decodeURIComponent(m[1]), filename: decodeURIComponent(m[2]) || fallbackName };
+  } catch {
+    return null;
+  }
+}
+
+// ?download=1 forces Content-Disposition: attachment so an .html artifact
+// downloads instead of rendering top-level at the API origin. Signed URLs
+// already carry a query string, so append with the right separator.
+function withDownload(url: string): string {
+  return `${url}${url.includes("?") ? "&" : "?"}download=1`;
+}
+
+// Fetch a (signed) URL whenever `active` becomes true. Signatures are
+// short-lived (~60s), so each consumer — inline preview on mount, overlay on
+// expand, download on click — asks for a fresh one at the moment it needs it
+// rather than sharing one that may have expired.
+function useArtifactUrl(runId: string | null, filename: string | null, active: boolean): string | null {
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!active || !runId || !filename) return;
+    let cancelled = false;
+    setUrl(null);
+    void signArtifactUrl(runId, filename).then((u) => {
+      if (!cancelled) setUrl(u);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [runId, filename, active]);
+  return active ? url : null;
 }
 
 function ArtifactBlockImpl({ block }: Props) {
   const e = ext(block.filename);
-  const url = fullUrl(block.url);
-  // ?download=1 forces Content-Disposition: attachment so an .html artifact
-  // downloads instead of rendering top-level at the API origin.
-  const downloadUrl = `${url}?download=1`;
   const isHtml = e === ".html" || e === ".htm";
+  const ref = parseArtifact(block.url, block.filename);
+  const runId = ref?.runId ?? null;
+  const filename = ref?.filename ?? null;
 
   const [expanded, setExpanded] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
+
+  const previewUrl = useArtifactUrl(runId, filename, isHtml);
+  const overlayUrl = useArtifactUrl(runId, filename, isHtml && expanded);
+
+  const download = async () => {
+    if (!runId || !filename) return;
+    const u = await signArtifactUrl(runId, filename);
+    // Content-Disposition: attachment -> the browser saves without leaving
+    // the page, so a same-window navigation is the least intrusive trigger.
+    if (u) window.location.assign(withDownload(u));
+  };
 
   useEffect(() => {
     if (!expanded) return;
@@ -74,7 +120,9 @@ function ArtifactBlockImpl({ block }: Props) {
         >
           {/* Sandboxed: allow-scripts only (NO allow-same-origin). Inline iframe
               is a non-interactive preview (pointer-events off) — click to expand. */}
-          <iframe src={url} sandbox="allow-scripts" title={block.filename} tabIndex={-1} />
+          {previewUrl && (
+            <iframe src={previewUrl} sandbox="allow-scripts" title={block.filename} tabIndex={-1} />
+          )}
           <span className="da-artifact-expand-hint">⤢ Click to expand</span>
         </button>
       )}
@@ -89,9 +137,9 @@ function ArtifactBlockImpl({ block }: Props) {
             Expand
           </button>
         )}
-        <a className="da-artifact-dl" href={downloadUrl} download>
+        <button className="da-artifact-dl" onClick={() => void download()} disabled={!ref}>
           Download
-        </a>
+        </button>
       </div>
 
       {expanded && (
@@ -100,20 +148,22 @@ function ArtifactBlockImpl({ block }: Props) {
           <div className="da-overlay-panel" onClick={(ev) => ev.stopPropagation()}>
             <div className="da-overlay-head">
               <span className="da-overlay-name">{block.filename}</span>
-              <a className="da-overlay-dl" href={downloadUrl} download>
+              <button className="da-overlay-dl" onClick={() => void download()}>
                 Download
-              </a>
+              </button>
               <button ref={closeRef} className="da-overlay-close" onClick={() => setExpanded(false)}>
                 ✕ Close
               </button>
             </div>
             {/* Same sandbox as inline — allow-scripts, NO allow-same-origin. */}
-            <iframe
-              className="da-overlay-iframe"
-              src={url}
-              sandbox="allow-scripts"
-              title={block.filename}
-            />
+            {overlayUrl && (
+              <iframe
+                className="da-overlay-iframe"
+                src={overlayUrl}
+                sandbox="allow-scripts"
+                title={block.filename}
+              />
+            )}
           </div>
         </div>
       )}

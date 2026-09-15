@@ -34,6 +34,7 @@ class AgentInput:
     # worker has no session to verify and must not try. None = pre-auth run.
     user_id: str | None = None
     org_id: str | None = None
+    recursion_limit: int = 15     # agent step budget, set per run by the API
 
 
 @dataclass
@@ -203,7 +204,7 @@ async def run_deep_agent(input: AgentInput) -> str:
                 token_buffer = ""
 
         try:
-            _config = {"recursion_limit": 30}
+            _config = {"recursion_limit": max(1, int(input.recursion_limit or 15))}
             if input.thread_id:
                 _config["configurable"] = {"thread_id": input.thread_id}
             # Seed Agent Skills into the virtual FS (StateBackend reads the

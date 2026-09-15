@@ -78,6 +78,8 @@
   flex-shrink: 0;
   padding: 6px 14px;
   font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
   background: var(--da-bg);
   color: var(--da-fg);
   border: 1px solid var(--da-border);
@@ -129,9 +131,13 @@
 .da-overlay-dl {
   flex-shrink: 0;
   font-size: 13px;
+  font-family: inherit;
   color: var(--da-fg-muted);
   text-decoration: none;
   padding: 6px 10px;
+  background: none;
+  border: 0;
+  cursor: pointer;
 }
 .da-overlay-dl:hover { color: var(--da-fg); text-decoration: underline; }
 .da-overlay-close {

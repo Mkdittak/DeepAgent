@@ -1,5 +1,5 @@
 import type { RunSummary, SkillDetail, SkillSummary, ThreadSummary, ThreadDetail } from "../store/types";
-import { authHeaders } from "../auth/stytch";
+import { AUTH_CONFIGURED, authHeaders } from "../auth/stytch";
 
 // API origin. Configurable via VITE_API_BASE so the app isn't pinned to the
 // build machine: set it to "" for same-origin (relative URLs behind a reverse
@@ -43,6 +43,24 @@ export async function listRuns(): Promise<RunSummary[]> {
 
 export function artifactUrl(runId: string, filename: string): string {
   return `${API_BASE}/artifacts/${encodeURIComponent(runId)}/${encodeURIComponent(filename)}`;
+}
+
+// A URL an <iframe> or <a> can load. With auth configured the backend requires
+// a short-lived signature (iframes/anchors can't send the bearer header), so
+// mint one through the authenticated /sign endpoint. Without auth the plain
+// URL works as before. null = not owned / gone / signing failed.
+export async function signArtifactUrl(runId: string, filename: string): Promise<string | null> {
+  if (!AUTH_CONFIGURED) return artifactUrl(runId, filename);
+  try {
+    const res = await apiFetch(
+      `/artifacts/${encodeURIComponent(runId)}/${encodeURIComponent(filename)}/sign`
+    );
+    if (!res.ok) return null;
+    const data = (await res.json()) as { url: string };
+    return `${API_BASE}${data.url}`;
+  } catch {
+    return null;
+  }
 }
 
 export async function listThreads(): Promise<ThreadSummary[]> {

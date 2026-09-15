@@ -30,6 +30,7 @@ class WorkflowInput:
     thread_id: str | None = None  # conversation thread for multi-turn memory (M0)
     user_id: str | None = None    # Stytch member_id, resolved in the API
     org_id: str | None = None     # Stytch organization_id, resolved in the API
+    recursion_limit: int = 15     # agent step budget (was hardcoded 30)
 
 
 @workflow.defn
@@ -54,6 +55,7 @@ class AgentWorkflow:
                 thread_id=input.thread_id,
                 user_id=input.user_id,
                 org_id=input.org_id,
+                recursion_limit=input.recursion_limit,
             ),
             start_to_close_timeout=timedelta(minutes=15),
             heartbeat_timeout=timedelta(minutes=5),
