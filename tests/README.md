@@ -72,6 +72,10 @@ cd tests
 ..\.venv\Scripts\python.exe proof_backend_restart.py  # restart backend mid-run -> re-attach persister, no truncation
 ..\.venv\Scripts\python.exe test_finished_replay.py   # finished-run replay characterization
 ```
+Auth end-to-end (stack up with `AUTH_ENABLED=true` + real Stytch keys; run from the repo root):
+```
+.venv\Scripts\python.exe tests\proof_auth_live.py   # creates 2 QA orgs + 4 members in your Stytch Test project, mints real sessions, drives 4 real runs: IDOR 404s, signed artifacts, admin gate via real RBAC reverify, per-org worker seed, thread continuation, revocation, backfill
+```
 `sse_client.py` is the shared SSE/REST helper (not a test). `check_wf.py` is a
 one-off workflow-status probe (edit the `WF` id).
 
