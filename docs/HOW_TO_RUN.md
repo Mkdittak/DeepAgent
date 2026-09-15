@@ -66,6 +66,49 @@ ARTIFACT_BASE=./artifacts                      # Optional — default shown
 | GOOGLE_API_KEY   | https://aistudio.google.com/apikey           |
 | TAVILY_API_KEY   | https://app.tavily.com/home                  |
 
+### Optional — Authentication & Tenancy (Stytch B2B)
+
+Auth is **off by default** (`AUTH_ENABLED=false`): one implicit user, no login,
+behaviour identical to the original demo. Leave it off unless you want
+per-member/per-org login. To turn it on you need a Stytch B2B project.
+
+**Backend `.env`:**
+
+```env
+AUTH_ENABLED=true                     # the switch; "false" is the rollback
+STYTCH_PROJECT_ID=project-test-...    # dashboard > API keys (Test env)
+STYTCH_SECRET=secret-test-...         # dashboard > API keys (server-side only)
+STYTCH_ENV=test                       # test | live — must match the keys
+ARTIFACT_SIGNING_SECRET=<any long random string>   # keeps artifact links valid across restarts
+ARTIFACT_SIGN_TTL_SECS=60             # optional; lifetime of a signed artifact link
+RUN_QUOTA_PER_ORG_PER_DAY=100         # optional; runs per org per calendar day -> 429 over cap
+AGENT_RECURSION_LIMIT=15              # optional; agent step budget per run
+```
+
+**Frontend `frontend/.env`** (copy from `frontend/.env.example`):
+
+```env
+VITE_STYTCH_PUBLIC_TOKEN=public-token-test-...   # dashboard > API keys. Unset = UI boots without login.
+```
+
+**Stytch dashboard setup (one-time, Test environment):**
+
+1. Create a **B2B** project at https://stytch.com/dashboard and open the **Test** environment.
+2. **Authentication > Email Magic Links** — enable.
+3. **Authentication > OAuth** — enable **Google** (Stytch's built-in test credentials are fine in Test).
+4. **Redirect URLs** — add `http://localhost:3000/authenticate` and mark it valid for **Login**, **Signup** and **Discovery**.
+5. **RBAC** — under Resources add `org_skills` with an action `manage`; under Roles confirm the built-in `stytch_admin` role has `org_skills: manage` (add the permission if it doesn't). The backend's org-skill trust/enable/delete routes check exactly this permission.
+6. **API keys** — copy the **Project ID** and a **Secret** into `.env`, the **Public token** into `frontend/.env`.
+7. Set `AUTH_ENABLED=true`, restart the backend and the Vite dev server. The UI now shows a sign-in screen; sign in with any email (magic link) or Google, create/choose an organization, and you're in. The first member of an org is its `stytch_admin`.
+
+What auth changes: threads, runs, streams and artifacts are scoped to the
+signed-in member; org-tier skills are shared within an organization and only
+admins can trust/enable/delete them; artifact links are short-lived signed
+URLs; each org has a daily run cap. Data created before auth was enabled is
+stamped `legacy`/`legacy` at first startup so it isn't lost (it's not shown to
+real tenants). Storage is still the JSON files — production row-level security
+is a separate, later step.
+
 ---
 
 ## Step 3 — Install Python Dependencies
@@ -310,6 +353,12 @@ They communicate: **Frontend → Backend → Temporal → Worker → Agent → T
 | WebSocket connection refused | Make sure the FastAPI backend (Terminal 3) is running |
 | Blank page at localhost:3000 | Make sure `npm install` was run in `frontend/` |
 | API key errors | Check `.env` file has valid keys (no quotes needed) |
+| Backend exits at start with `AUTH_ENABLED=true but STYTCH_PROJECT_ID / STYTCH_SECRET are not set` | Fill both keys in `.env`, or set `AUTH_ENABLED=false` |
+| Login screen shows but backend answers 401 | `AUTH_ENABLED` is true but the backend keys belong to a different Stytch project than `VITE_STYTCH_PUBLIC_TOKEN` |
+| Sign-in never completes after clicking the email link | Redirect URL `http://localhost:3000/authenticate` isn't registered for Discovery in the dashboard |
+| Trust/enable an org skill returns 403 for an admin | RBAC resource `org_skills` / action `manage` isn't granted to `stytch_admin` in the dashboard |
+| Artifact preview blank / Download 404 with auth on | Signed link expired (60s) — reopen; set `ARTIFACT_SIGNING_SECRET` so links survive backend restarts |
+| `429 daily run quota reached` | The org hit `RUN_QUOTA_PER_ORG_PER_DAY`; wait for `reset_at` or raise the cap |
 | Port already in use | Kill the process using that port or change the port |
 | Agent times out | Check Temporal dashboard at http://localhost:8233 for workflow status |
 

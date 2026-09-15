@@ -28,6 +28,24 @@ $env:PYTHONPATH = (Get-Location).Path
 .venv\Scripts\python.exe tests\test_envelope.py     # v1 event-envelope mapping (all types, null identity fields)
 ```
 
+### 2b. Auth / tenancy (venv only, no live stack, no Stytch network)
+Standalone: each script builds an isolated FastAPI `TestClient` against a temp
+`ARTIFACT_BASE`, fakes Temporal, and overrides `get_principal` per request
+(shared setup in `auth_harness.py`, not a test). Dummy Stytch keys are set in
+the harness, so no `.env` is needed. Run from the repo root:
+```
+.venv\Scripts\python.exe tests	est_idor.py        # B/other-org asking for A's thread/run/stream/artifact/skill -> 404, never 403, never data
+.venv\Scripts\python.exe tests	est_forged_jwt.py  # real get_principal: missing/garbage/attacker-signed/wrong-project/expired JWT -> 401; valid -> Principal
+.venv\Scripts\python.exe tests	est_org_scope.py   # org A's skills invisible to org B in the API listing AND the worker seed
+.venv\Scripts\python.exe tests	est_admin_gate.py  # member cannot trust/enable/delete an org skill (403); admin can via network reverify; user-tier = ownership
+.venv\Scripts\python.exe tests	est_quota.py       # N+1th run in a day for one org -> 429 + reset_at + Retry-After
+.venv\Scripts\python.exe tests	est_flag_off.py    # AUTH_ENABLED=false: every endpoint behaves exactly pre-auth (no scoping/gate/quota/signing)
+```
+`test_forged_jwt.py` signs real RS256 JWTs with a throwaway keypair and swaps
+the client's JWKS lookup + network fallback for in-process fakes, so it
+exercises the real verification path deterministically. Env knobs the tests
+touch: `AUTH_ENABLED`, `RUN_QUOTA_PER_ORG_PER_DAY`, `ARTIFACT_SIGNING_SECRET`.
+
 ### 3. Temporal-only (needs `temporal server start-dev` on :7233)
 ```
 .venv\Scripts\python.exe tests\test_retry_offset.py  # real WorkflowStream: offsets unique across a forced retry
