@@ -82,7 +82,7 @@ STYTCH_ENV=test                       # test | live — must match the keys
 ARTIFACT_SIGNING_SECRET=<any long random string>   # keeps artifact links valid across restarts
 ARTIFACT_SIGN_TTL_SECS=60             # optional; lifetime of a signed artifact link
 RUN_QUOTA_PER_ORG_PER_DAY=100         # optional; runs per org per calendar day -> 429 over cap
-AGENT_RECURSION_LIMIT=15              # optional; agent step budget per run
+AGENT_RECURSION_LIMIT=30              # optional; agent step budget per run (15 is too low)
 ```
 
 **Frontend `frontend/.env`** (copy from `frontend/.env.example`):
@@ -104,10 +104,23 @@ VITE_STYTCH_PUBLIC_TOKEN=public-token-test-...   # dashboard > API keys. Unset =
 What auth changes: threads, runs, streams and artifacts are scoped to the
 signed-in member; org-tier skills are shared within an organization and only
 admins can trust/enable/delete them; artifact links are short-lived signed
-URLs; each org has a daily run cap. Data created before auth was enabled is
-stamped `legacy`/`legacy` at first startup so it isn't lost (it's not shown to
-real tenants). Storage is still the JSON files — production row-level security
-is a separate, later step.
+URLs; each org has a daily run cap. Storage is still the JSON files —
+production row-level security is a separate, later step.
+
+**Your pre-auth conversations.** Data created before auth was enabled is
+stamped `legacy`/`legacy` at first startup so it isn't lost, but it's shown to
+nobody. To hand it to yourself: create an organization for yourself in the
+Stytch dashboard (or let the Discovery login create one), note its
+`organization_id` and your `member_id` (dashboard > Organizations > members),
+stop the backend, then:
+
+```
+.venv\Scripts\python.exe -m backend.claim_legacy --org organization-test-... --member member-test-... --unarchive
+```
+
+`--unarchive` also un-hides the old conversations (they were archived when
+the sidebar was introduced). Restart the backend afterwards; it keeps the run
+registry in memory and would otherwise overwrite the move.
 
 ---
 

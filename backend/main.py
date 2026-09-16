@@ -306,8 +306,9 @@ def _resolve_artifact(run_id: str, filename: str) -> str | None:
 
 RUN_QUOTA_PER_ORG_PER_DAY = int(os.environ.get("RUN_QUOTA_PER_ORG_PER_DAY", "100"))
 # Per-run agent step budget, carried in WorkflowInput so it's configurable
-# per run without a worker deploy. Was a hardcoded 30 in the activity.
-AGENT_RECURSION_LIMIT = int(os.environ.get("AGENT_RECURSION_LIMIT", "15"))
+# per run without a worker deploy. 15 was tried and hit GraphRecursionError
+# on ordinary tasks (deepagents planning/middleware steps count), so 30 stays.
+AGENT_RECURSION_LIMIT = int(os.environ.get("AGENT_RECURSION_LIMIT", "30"))
 
 
 def _quota_status(org_id: str, now: datetime | None = None) -> tuple[int, datetime]:

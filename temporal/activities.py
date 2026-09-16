@@ -34,7 +34,7 @@ class AgentInput:
     # worker has no session to verify and must not try. None = pre-auth run.
     user_id: str | None = None
     org_id: str | None = None
-    recursion_limit: int = 15     # agent step budget, set per run by the API
+    recursion_limit: int = 30     # agent step budget, set per run by the API
 
 
 @dataclass
@@ -204,7 +204,7 @@ async def run_deep_agent(input: AgentInput) -> str:
                 token_buffer = ""
 
         try:
-            _config = {"recursion_limit": max(1, int(input.recursion_limit or 15))}
+            _config = {"recursion_limit": max(1, int(input.recursion_limit or 30))}
             if input.thread_id:
                 _config["configurable"] = {"thread_id": input.thread_id}
             # Seed Agent Skills into the virtual FS (StateBackend reads the
@@ -220,6 +220,33 @@ async def run_deep_agent(input: AgentInput) -> str:
             skill_seed = seed_files(user_id=input.user_id, org_id=input.org_id)
             skills_by_path = skill_index(skill_seed)
             skills_activated: set[str] = set()  # dedupe skill.activated per run
+
+            # Continuing a thread: any SKILL.md the agent read on an earlier
+            # turn is still in its checkpointed message history, so it stays
+            # in force without being re-read — which means no read_file, and
+            # so no skill.activated event. Announce those carried-over skills
+            # up front so the UI shows what's shaping this turn. Only skills
+            # still seeded for THIS run's tenant count (a skill disabled or
+            # untrusted since then is not re-announced).
+            if input.thread_id:
+                try:
+                    snap = await agent.aget_state(_config)
+                    for msg in (snap.values or {}).get("messages", []) or []:
+                        for tc in getattr(msg, "tool_calls", None) or []:
+                            if tc.get("name") != "read_file":
+                                continue
+                            path = str((tc.get("args") or {}).get("file_path", ""))
+                            info = skills_by_path.get(path)
+                            if info and path not in skills_activated:
+                                skills_activated.add(path)
+                                progress.publish(AgentProgress(
+                                    seq=next_seq(), ts=_now_iso(), run_id=input.run_id,
+                                    type="skill",
+                                    label=f"Skill in context: {info['name']}",
+                                    skill={**info, "path": path},
+                                ))
+                except Exception as e:  # never let a UX hint break a run
+                    logger.warning("carried-over skill scan failed: %s", e)
             async for ev in agent.astream_events(
                 {
                     "messages": [{"role": "user", "content": input.user_message}],

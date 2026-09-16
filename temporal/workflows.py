@@ -30,7 +30,7 @@ class WorkflowInput:
     thread_id: str | None = None  # conversation thread for multi-turn memory (M0)
     user_id: str | None = None    # Stytch member_id, resolved in the API
     org_id: str | None = None     # Stytch organization_id, resolved in the API
-    recursion_limit: int = 15     # agent step budget (was hardcoded 30)
+    recursion_limit: int = 30     # agent step budget; 15 proved too low (planning + middleware steps count)
 
 
 @workflow.defn

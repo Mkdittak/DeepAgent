@@ -219,6 +219,41 @@ def backfill_identity(runs: dict, user_id: str, org_id: str) -> dict[str, int]:
     return counts
 
 
+def claim_identity(runs: dict, source: "Identity", target: "Identity",
+                   unarchive: bool = False) -> dict[str, int]:
+    """Move every row owned by `source` (typically the LEGACY bucket) to
+    `target` — a real member/org — so pre-auth data becomes someone's.
+
+    Threads and org/user skills are re-stamped in place; run rows in `runs`
+    are re-stamped and, when a run predates threads entirely (no thread_id),
+    attached to the `legacy-<run_id>` thread that load() created for it so it
+    is openable. With `unarchive`, the A3 archive flag (deleted_at) is cleared
+    on the claimed threads so they reappear in the sidebar. Idempotent.
+    Persists through the same atomic writers as everything else; the caller
+    persists `runs`.
+    """
+    _load_skills()
+    counts = {"threads": 0, "runs": 0, "skills": 0, "unarchived": 0}
+    for t in _threads.values():
+        if _owned(t, source):
+            _stamp(t, target); counts["threads"] += 1
+            if unarchive and t.get("deleted_at"):
+                t["deleted_at"] = None; counts["unarchived"] += 1
+    for run_id, info in runs.items():
+        if isinstance(info, dict) and _owned(info, source):
+            _stamp(info, target); counts["runs"] += 1
+            if not info.get("thread_id") and f"legacy-{run_id}" in _threads:
+                info["thread_id"] = f"legacy-{run_id}"
+    for row in _skills.values():
+        if row.get("tier") in ("org", "user") and _owned(row, source):
+            _stamp(row, target); counts["skills"] += 1
+    if counts["threads"]:
+        _save()
+    if counts["skills"]:
+        _save_skills()
+    return counts
+
+
 def ensure_thread(thread_id: str, first_user_message: str, run_id: str,
                   identity: Identity | None = None) -> None:
     """Create a thread record on the first message (A4: no empty threads),
