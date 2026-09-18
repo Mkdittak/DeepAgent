@@ -254,6 +254,24 @@ def claim_identity(runs: dict, source: "Identity", target: "Identity",
     return counts
 
 
+def reassign_threads(runs: dict, thread_ids: list[str], target: "Identity") -> dict[str, int]:
+    """Hand specific threads (and every run in them) to `target`. Used to
+    spread claimed legacy conversations across members. Unknown ids are
+    skipped. Persists the thread store; the caller persists `runs`."""
+    wanted = set(thread_ids)
+    counts = {"threads": 0, "runs": 0}
+    for tid in wanted:
+        t = _threads.get(tid)
+        if t is not None:
+            _stamp(t, target); counts["threads"] += 1
+    for info in runs.values():
+        if isinstance(info, dict) and info.get("thread_id") in wanted:
+            _stamp(info, target); counts["runs"] += 1
+    if counts["threads"]:
+        _save()
+    return counts
+
+
 def ensure_thread(thread_id: str, first_user_message: str, run_id: str,
                   identity: Identity | None = None) -> None:
     """Create a thread record on the first message (A4: no empty threads),
