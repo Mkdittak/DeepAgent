@@ -41,7 +41,7 @@ Edit `.env` and add your API keys:
 ### 2. Install
 
 ```bash
-pip install -r requirements.txt
+pip install -e ".[dev]"
 cd frontend && npm install && cd ..
 ```
 
@@ -110,7 +110,7 @@ DeepAgent/
 │
 ├── artifacts/            # Generated output files (gitignored)
 ├── .env.example          # Environment template
-├── requirements.txt      # Python dependencies
+├── pyproject.toml        # Python dependencies + tool config
 └── start.bat             # One-click launcher (Windows)
 ```
 

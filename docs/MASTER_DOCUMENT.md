@@ -133,7 +133,7 @@ The system is built as a **three-tier architecture** with a durable execution la
 | **Web Search** | Tavily API | Real-time web search for the agent |
 | **File Generation** | python-pptx, openpyxl | PowerPoint and Excel file creation |
 
-### Python Dependencies (`requirements.txt`)
+### Python Dependencies (`pyproject.toml`)
 
 ```
 fastapi>=0.115.0          # Web framework for the API server
@@ -201,7 +201,7 @@ DeepAgent/
 │
 ├── .env                            # Environment variables (API keys — NOT committed)
 ├── .env.example                    # Template for .env
-├── requirements.txt                # Python dependencies
+├── pyproject.toml                  # Python dependencies + tool config
 ├── README.md                       # Quick-start guide
 └── ARCHITECTURE.md                 # Architecture design document
 ```
@@ -1470,7 +1470,7 @@ Edit `.env` and fill in:
 
 ```bash
 # Python
-pip install -r requirements.txt
+pip install -e ".[dev]"
 
 # Frontend
 cd frontend && npm install && cd ..

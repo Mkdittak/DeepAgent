@@ -1,0 +1,111 @@
+# Project metadata, dependencies, and tool config in one place.
+# Install everything (runtime + test/lint tools) with:  pip install -e ".[dev]"
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "deepagent"
+version = "0.1.0"
+description = "Autonomous AI agent with durable execution (FastAPI + Temporal + LangChain Deep Agents)."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Proprietary" }
+
+dependencies = [
+    # Core API
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "websockets>=14.0",
+    # Deep Agent
+    "deepagents>=0.6.0",
+    "langchain-google-genai>=4.0.0",
+    # Durable execution
+    "temporalio>=1.10.0",
+    # Conversational memory (SQLite checkpointer for local/dev; swap the saver
+    # import to langgraph-checkpoint-postgres in Bucket B).
+    "langgraph-checkpoint-sqlite>=2.0.0",
+    # Tools
+    "tavily-python>=0.5.0",
+    "python-pptx>=1.0.0",
+    "openpyxl>=3.1.0",
+    # Env
+    "python-dotenv>=1.0.0",
+    # Auth (Stytch B2B)
+    "stytch>=15.3.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "httpx>=0.27",          # FastAPI TestClient (tests/auth_harness.py)
+    "ruff>=0.6",
+]
+
+# The importable packages are the three top-level dirs the app runs from
+# (`python -m backend.main`, `python -m temporal.worker`). skills/ holds
+# SKILL.md bundles, not Python, and tests/ is not a package.
+[tool.setuptools]
+packages = ["agent", "backend", "temporal"]
+
+# ---------------------------------------------------------------------------
+# ruff
+# ---------------------------------------------------------------------------
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+extend-exclude = [
+    ".venv",
+    "artifacts",
+    "frontend",
+    "skills",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "B",    # bugbear
+    "UP",   # pyupgrade
+    "SIM",  # simplify
+    "ASYNC",
+    "RUF",
+]
+ignore = [
+    "E501",   # line length: enforced by the formatter, not the linter
+    "B008",   # function call in argument default — FastAPI's Depends() idiom
+    "SIM105", # contextlib.suppress is already used where it reads better
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Proof scripts drive the live stack and print PASS/FAIL; keep lint light there
+# until they are converted to pytest.
+"tests/proof_*.py" = ["E402", "F841", "RUF"]
+"tests/check_wf.py" = ["E402"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["agent", "backend", "temporal"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+# ---------------------------------------------------------------------------
+# pytest
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Only test_*.py are collected. proof_*.py need Temporal + worker + backend
+# running and are run by hand (see tests/README.md).
+python_files = ["test_*.py"]
+pythonpath = ["."]        # so `import backend`, `from agent import ...` work without PYTHONPATH
+asyncio_mode = "auto"
+addopts = "-ra --strict-markers"
+markers = [
+    "temporal: needs `temporal server start-dev` on :7233",
+    "gemini: needs GOOGLE_API_KEY and makes real model calls",
+    "stack: needs the full stack (Temporal + worker + backend) running",
+]

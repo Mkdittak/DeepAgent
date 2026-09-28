@@ -132,7 +132,7 @@ Key differentiators:
 |------|-------------|-----------|
 | **`.env`** | Stores API keys (`GOOGLE_API_KEY`, `TAVILY_API_KEY`) and optional config. | **Never committed to Git.** Required for the agent and web search to work. |
 | **`.env.example`** | Template showing which environment variables are needed. | Copy to `.env` and fill in your keys. |
-| **`requirements.txt`** | Python dependencies with minimum versions. | Install with `pip install -r requirements.txt`. |
+| **`pyproject.toml`** | Python dependencies with minimum versions, plus ruff and pytest config. | Install with `pip install -e ".[dev]"`. |
 | **`start.bat`** | One-click Windows launcher — starts all 4 services in separate terminal windows and opens the browser. | Starts: Temporal server, Temporal worker, FastAPI backend, React frontend. |
 | **`.gitignore`** | Excludes `.env`, `artifacts/`, `node_modules/`, `__pycache__/`, IDE files. | Keeps secrets and generated files out of the repo. |
 

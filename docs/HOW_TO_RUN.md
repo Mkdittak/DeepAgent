@@ -127,7 +127,7 @@ registry in memory and would otherwise overwrite the move.
 ## Step 3 — Install Python Dependencies
 
 ```bash
-pip install -r requirements.txt
+pip install -e ".[dev]"
 ```
 
 > **Tip:** Use a virtual environment to avoid conflicts:
@@ -135,7 +135,7 @@ pip install -r requirements.txt
 > python -m venv venv
 > venv\Scripts\activate       # Windows
 > # source venv/bin/activate  # macOS/Linux
-> pip install -r requirements.txt
+> pip install -e ".[dev]"
 > ```
 
 ---
@@ -270,7 +270,7 @@ DeepAgent/
 ├── artifacts/              # Generated output files land here
 ├── .env                    # Your API keys (do not commit)
 ├── .env.example            # Template for .env
-├── requirements.txt        # Python dependencies
+├── pyproject.toml          # Python dependencies + tool config
 └── README.md               # Original quick-start guide
 ```
 
@@ -362,7 +362,7 @@ They communicate: **Frontend → Backend → Temporal → Worker → Agent → T
 | Problem | Solution |
 |---------|----------|
 | `temporal: command not found` | Install Temporal CLI (see Prerequisites) |
-| `ModuleNotFoundError` | Run `pip install -r requirements.txt` again |
+| `ModuleNotFoundError` | Run `pip install -e ".[dev]"` again |
 | WebSocket connection refused | Make sure the FastAPI backend (Terminal 3) is running |
 | Blank page at localhost:3000 | Make sure `npm install` was run in `frontend/` |
 | API key errors | Check `.env` file has valid keys (no quotes needed) |
