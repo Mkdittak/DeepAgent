@@ -38,6 +38,12 @@ Edit `.env` and add your API keys:
 | `GOOGLE_API_KEY` | Yes      | https://aistudio.google.com/apikey     |
 | `TAVILY_API_KEY` | Yes      | https://app.tavily.com/home            |
 
+> **Auth is off by default.** With `AUTH_ENABLED=false` every visitor is the same
+> implicit user and every run, thread, and artifact is visible to anyone who can
+> reach the server. This is intended for local development on your own machine
+> only. Do not expose the backend on a network in this mode; see `docs/AUTH.md`
+> for turning Stytch auth on.
+
 ### 2. Install
 
 ```bash
