@@ -35,6 +35,7 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel
 from temporalio.client import Client, WorkflowExecutionStatus
 from temporalio.contrib.workflow_streams import WorkflowStreamClient
+from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.service import RPCError
 
 from agent.skills import builtin_skill_records, parse_skill_md
@@ -351,12 +352,24 @@ def _quota_exceeded(p: Principal) -> JSONResponse | None:
 
 
 def _make_run_id(user_message: str) -> str:
-    """Generate a human-readable run ID from the user's prompt."""
+    """Generate a human-readable, unique run ID from the user's prompt.
+
+    Shape: <slug>_<YYYY-MM-DD_HH-MM-SS>_<6 hex>. The slug and timestamp are
+    for humans; the random suffix is what makes the id unique. Without it two
+    runs with a similar prompt inside one wall-clock second (double-click Send,
+    a scripted resubmit) got the same id and workflow_id: the second run either
+    500'd on WorkflowAlreadyStartedError or silently appended into the first
+    run's event log where offset dedup dropped every event (issue #1).
+    The registry check is belt-and-braces against the 1-in-16M suffix repeat.
+    """
     words = re.sub(r"[^a-zA-Z0-9 ]", "", user_message).lower().split()[:6]
     slug = "-".join(words) if words else "run"
     slug = slug[:40].rstrip("-")
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    return f"{slug}_{timestamp}"
+    while True:
+        run_id = f"{slug}_{timestamp}_{secrets.token_hex(3)}"
+        if run_id not in run_registry:
+            return run_id
 
 
 async def get_temporal_client() -> Client:
@@ -726,17 +739,26 @@ async def _start_agent_run(client: Client, user_message: str, requested_thread: 
     # bumps its updated_at.
     store.ensure_thread(thread_id, user_message, run_id, ident)
     store.touch_thread(thread_id)
-    await client.start_workflow(
-        AgentWorkflow.run,
-        WorkflowInput(
-            run_id=run_id, user_message=user_message, thread_id=thread_id,
-            user_id=ident.user_id if ident else None,
-            org_id=ident.org_id if ident else None,
-            recursion_limit=AGENT_RECURSION_LIMIT,
-        ),
-        id=workflow_id,
-        task_queue=TASK_QUEUE,
-    )
+    try:
+        await client.start_workflow(
+            AgentWorkflow.run,
+            WorkflowInput(
+                run_id=run_id, user_message=user_message, thread_id=thread_id,
+                user_id=ident.user_id if ident else None,
+                org_id=ident.org_id if ident else None,
+                recursion_limit=AGENT_RECURSION_LIMIT,
+            ),
+            id=workflow_id,
+            task_queue=TASK_QUEUE,
+        )
+    except WorkflowAlreadyStartedError:
+        # Temporal already has a live workflow under this id. Roll back the
+        # registry row we wrote above so a stale "running" entry with no
+        # workflow behind it never reaches Past Runs or startup recovery, then
+        # let the route turn this into a 409 instead of an unhandled 500.
+        run_registry.pop(run_id, None)
+        _save_registry()
+        raise
     return run_id, workflow_id, thread_id
 
 
@@ -845,9 +867,15 @@ async def create_run(body: StartRunBody, p: Principal = Depends(get_principal)):
     if over is not None:
         return over
     client = await get_temporal_client()
-    run_id, workflow_id, thread_id = await _start_agent_run(
-        client, body.message, body.thread_id, p
-    )
+    try:
+        run_id, workflow_id, thread_id = await _start_agent_run(
+            client, body.message, body.thread_id, p
+        )
+    except WorkflowAlreadyStartedError:
+        return JSONResponse(
+            {"error": "a run with this id is already in progress; please retry"},
+            status_code=409,
+        )
     # Persist events in the background so the run is replayable after it ends.
     asyncio.create_task(_persist_run(client, workflow_id, run_id))
     return {"run_id": run_id, "workflow_id": workflow_id, "thread_id": thread_id}

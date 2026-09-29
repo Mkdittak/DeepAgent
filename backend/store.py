@@ -76,7 +76,9 @@ _loaded = False
 _skills: dict[str, dict] = {}
 _skills_loaded = False
 
-_TS_TAIL_RE = re.compile(r"_(\d{4}-\d{2}-\d{2})_(\d{2})-(\d{2})-(\d{2})$")
+# run_id tail: _YYYY-MM-DD_HH-MM-SS, optionally followed by the 6-hex uniqueness
+# suffix added for issue #1. Both shapes parse so pre-fix rows keep working.
+_TS_TAIL_RE = re.compile(r"_(\d{4}-\d{2}-\d{2})_(\d{2})-(\d{2})-(\d{2})(?:_[0-9a-f]{6})?$")
 
 
 class Identity(NamedTuple):
@@ -135,7 +137,7 @@ def _readable(run_id: str, user_message: str) -> str:
     """A thread title: the first user message, else a de-slugified run_id."""
     if user_message:
         return user_message[:80]
-    m = re.match(r"^(.*)_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}$", run_id)
+    m = re.match(r"^(.*)_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}(?:_[0-9a-f]{6})?$", run_id)
     slug = m.group(1) if m else run_id
     text = slug.replace("-", " ").strip()
     return (text[:1].upper() + text[1:]) if text else run_id
