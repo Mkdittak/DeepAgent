@@ -58,6 +58,7 @@ def test_duplicate_workflow_id_is_409_and_registry_rolled_back():
 
     fake_client = h.m.get_temporal_client  # coroutine returning the fake
     import asyncio
+
     client = asyncio.run(fake_client())
     client.start_workflow = already_started
 
@@ -68,8 +69,11 @@ def test_duplicate_workflow_id_is_409_and_registry_rolled_back():
     # no stale 'running' row in memory ...
     assert set(h.m.run_registry) == before
     # ... nor on disk
-    on_disk = json.loads(Path(h.m.REGISTRY_FILE).read_text(encoding="utf-8")) \
-        if Path(h.m.REGISTRY_FILE).exists() else {}
+    on_disk = (
+        json.loads(Path(h.m.REGISTRY_FILE).read_text(encoding="utf-8"))
+        if Path(h.m.REGISTRY_FILE).exists()
+        else {}
+    )
     assert not any(v.get("user_message") == "dup me" for v in on_disk.values())
 
 

@@ -35,8 +35,8 @@ class RunContext:
     progress_cb: Optional[ProgressCallback] = None
     file_cb: Optional[FileCallback] = None  # emits file.created at write time
     thread_id: Optional[str] = None  # set by the memory step (M0)
-    user_id: Optional[str] = None    # Stytch member_id (from WorkflowInput)
-    org_id: Optional[str] = None     # Stytch organization_id (from WorkflowInput)
+    user_id: Optional[str] = None  # Stytch member_id (from WorkflowInput)
+    org_id: Optional[str] = None  # Stytch organization_id (from WorkflowInput)
 
 
 _run_context: contextvars.ContextVar[Optional[RunContext]] = contextvars.ContextVar(

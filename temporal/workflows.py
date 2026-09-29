@@ -25,12 +25,15 @@ class WorkflowInput:
     re-derives identity from anything a client sent. None = pre-auth run
     (AUTH_ENABLED=false), which seeds skills exactly as before.
     """
+
     run_id: str
     user_message: str
     thread_id: str | None = None  # conversation thread for multi-turn memory (M0)
-    user_id: str | None = None    # Stytch member_id, resolved in the API
-    org_id: str | None = None     # Stytch organization_id, resolved in the API
-    recursion_limit: int = 30     # agent step budget; 15 proved too low (planning + middleware steps count)
+    user_id: str | None = None  # Stytch member_id, resolved in the API
+    org_id: str | None = None  # Stytch organization_id, resolved in the API
+    recursion_limit: int = (
+        30  # agent step budget; 15 proved too low (planning + middleware steps count)
+    )
 
 
 @workflow.defn

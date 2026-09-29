@@ -27,6 +27,7 @@ from urllib.parse import quote
 logger = logging.getLogger(__name__)
 
 from dotenv import load_dotenv
+
 load_dotenv()
 
 from fastapi import Depends, FastAPI, Request
@@ -172,7 +173,11 @@ def _load_registry():
             for run_id, info in saved.items():
                 # Handle old format (string) and new format (dict)
                 if isinstance(info, str):
-                    run_registry[run_id] = {"workflow_id": info, "user_message": "", "status": "unknown"}
+                    run_registry[run_id] = {
+                        "workflow_id": info,
+                        "user_message": "",
+                        "status": "unknown",
+                    }
                 else:
                     run_registry[run_id] = info
         except json.JSONDecodeError as e:
@@ -184,7 +189,9 @@ def _load_registry():
             logger.error(
                 "Run registry %s is corrupt (%s); moved to %s. Recovering run "
                 "IDs from artifact directories; user_message/status may be lost.",
-                REGISTRY_FILE, e, corrupt,
+                REGISTRY_FILE,
+                e,
+                corrupt,
             )
         except OSError as e:
             logger.error("Could not read run registry %s: %s", REGISTRY_FILE, e)
@@ -233,6 +240,7 @@ _backfill_legacy_identity()
 # Unknown and unowned are answered identically (404): existence is never
 # confirmed for a resource the caller doesn't own.
 # ---------------------------------------------------------------------------
+
 
 def _ident(p: Principal) -> store.Identity | None:
     return store.Identity(p.user_id, p.org_id) if auth.auth_enabled() else None
@@ -345,9 +353,14 @@ def _quota_exceeded(p: Principal) -> JSONResponse | None:
         return None
     retry = max(1, int((reset_at - datetime.now().astimezone()).total_seconds()))
     return JSONResponse(
-        {"error": "daily run quota reached", "limit": RUN_QUOTA_PER_ORG_PER_DAY,
-         "used": used, "reset_at": reset_at.isoformat()},
-        status_code=429, headers={"Retry-After": str(retry)},
+        {
+            "error": "daily run quota reached",
+            "limit": RUN_QUOTA_PER_ORG_PER_DAY,
+            "used": used,
+            "reset_at": reset_at.isoformat(),
+        },
+        status_code=429,
+        headers={"Retry-After": str(retry)},
     )
 
 
@@ -384,6 +397,7 @@ async def get_temporal_client() -> Client:
 # Health
 # ---------------------------------------------------------------------------
 
+
 @app.get("/health")
 async def health():
     return {"status": "ok"}
@@ -393,6 +407,7 @@ async def health():
 # Artifact download
 # ---------------------------------------------------------------------------
 
+
 @app.get("/artifacts/{run_id}/{filename}/sign")
 async def sign_artifact(run_id: str, filename: str, p: Principal = Depends(get_principal)):
     """Authenticated: mint a short-lived signed URL for an artifact the caller
@@ -401,8 +416,10 @@ async def sign_artifact(run_id: str, filename: str, p: Principal = Depends(get_p
     if not _run_owned(run_id, p) or _resolve_artifact(run_id, filename) is None:
         return JSONResponse(_NOT_FOUND, status_code=404)
     qs, exp = _sign_artifact(run_id, filename)
-    return {"url": f"/artifacts/{quote(run_id, safe='')}/{quote(filename, safe='')}?{qs}",
-            "expires_at": exp}
+    return {
+        "url": f"/artifacts/{quote(run_id, safe='')}/{quote(filename, safe='')}?{qs}",
+        "expires_at": exp,
+    }
 
 
 @app.get("/artifacts/{run_id}/{filename}")
@@ -430,6 +447,7 @@ async def download_artifact(run_id: str, filename: str, request: Request):
     if ext in (".html", ".htm") and not want_download:
         with open(path, "r", encoding="utf-8") as f:
             from fastapi.responses import HTMLResponse
+
             return HTMLResponse(f.read())
     # FileResponse(filename=...) sets Content-Disposition: attachment.
     return FileResponse(path, filename=filename)
@@ -438,6 +456,7 @@ async def download_artifact(run_id: str, filename: str, request: Request):
 # ---------------------------------------------------------------------------
 # List runs
 # ---------------------------------------------------------------------------
+
 
 @app.get("/runs")
 async def list_runs(p: Principal = Depends(get_principal)):
@@ -448,19 +467,25 @@ async def list_runs(p: Principal = Depends(get_principal)):
             continue
         artifact_dir = os.path.join(ARTIFACT_BASE, run_id)
         if os.path.isdir(artifact_dir):
-            artifacts = [f for f in os.listdir(artifact_dir) if not f.startswith("~$") and not f.startswith(".")]
+            artifacts = [
+                f
+                for f in os.listdir(artifact_dir)
+                if not f.startswith("~$") and not f.startswith(".")
+            ]
             mtime = os.path.getmtime(artifact_dir)
         else:
             artifacts = []
             mtime = 0
-        runs.append({
-            "run_id": run_id,
-            "workflow_id": info["workflow_id"],
-            "artifacts": artifacts,
-            "user_message": info.get("user_message", ""),
-            "status": info.get("status", "unknown"),
-            "mtime": mtime,
-        })
+        runs.append(
+            {
+                "run_id": run_id,
+                "workflow_id": info["workflow_id"],
+                "artifacts": artifacts,
+                "user_message": info.get("user_message", ""),
+                "status": info.get("status", "unknown"),
+                "mtime": mtime,
+            }
+        )
     runs.sort(key=lambda r: r["mtime"], reverse=True)
     return runs
 
@@ -468,6 +493,7 @@ async def list_runs(p: Principal = Depends(get_principal)):
 # ---------------------------------------------------------------------------
 # Threads (conversations) — the sidebar's data source
 # ---------------------------------------------------------------------------
+
 
 @app.get("/threads")
 async def list_threads(p: Principal = Depends(get_principal)):
@@ -489,8 +515,9 @@ class RenameThreadBody(BaseModel):
 
 
 @app.patch("/threads/{thread_id}")
-async def rename_thread(thread_id: str, body: RenameThreadBody,
-                        p: Principal = Depends(get_principal)):
+async def rename_thread(
+    thread_id: str, body: RenameThreadBody, p: Principal = Depends(get_principal)
+):
     """Rename a thread (A1). Title is clamped to the same 80 chars as creation."""
     title = body.title.strip()[:80]
     if not title:
@@ -516,6 +543,7 @@ async def delete_thread(thread_id: str, p: Principal = Depends(get_principal)):
 # managed (409 on trust/delete). The worker seeds runs from the same registry
 # (agent/skills.py.seed_files), so these routes are the only write path.
 # ---------------------------------------------------------------------------
+
 
 @app.get("/skills")
 async def list_skills(p: Principal = Depends(get_principal)):
@@ -554,9 +582,9 @@ async def _gate_skill_write(request: Request, p: Principal, tier: str) -> Princi
 
 
 class InstallSkillBody(BaseModel):
-    body: str                      # full SKILL.md (frontmatter + instructions)
-    tier: str = "user"             # 'user' | 'org'
-    files: dict[str, str] = {}     # optional bundle: relative path -> content
+    body: str  # full SKILL.md (frontmatter + instructions)
+    tier: str = "user"  # 'user' | 'org'
+    files: dict[str, str] = {}  # optional bundle: relative path -> content
 
 
 @app.post("/skills")
@@ -575,12 +603,18 @@ async def install_skill(body: InstallSkillBody, p: Principal = Depends(get_princ
         if not parts[0] or ".." in parts:
             return JSONResponse({"error": f"invalid bundle path: {rel}"}, status_code=422)
     s = store.install_skill(
-        name=meta["name"], tier=body.tier, description=meta["description"],
-        source="upload", body=body.body, files=body.files, identity=_ident(p),
+        name=meta["name"],
+        tier=body.tier,
+        description=meta["description"],
+        source="upload",
+        body=body.body,
+        files=body.files,
+        identity=_ident(p),
     )
     if s is None:
-        return JSONResponse({"error": "a skill with this name already exists in this tier"},
-                            status_code=409)
+        return JSONResponse(
+            {"error": "a skill with this name already exists in this tier"}, status_code=409
+        )
     return s
 
 
@@ -590,8 +624,9 @@ class PatchSkillBody(BaseModel):
 
 
 @app.patch("/skills/{skill_id}")
-async def patch_skill(skill_id: str, body: PatchSkillBody, request: Request,
-                      p: Principal = Depends(get_principal)):
+async def patch_skill(
+    skill_id: str, body: PatchSkillBody, request: Request, p: Principal = Depends(get_principal)
+):
     """Enable/disable a skill or flip its trust_state (the review action).
     Visibility (404) is checked before authorization (403) so an org member
     learns nothing about rows outside their scope."""
@@ -601,11 +636,11 @@ async def patch_skill(skill_id: str, body: PatchSkillBody, request: Request,
     if s is None:
         return JSONResponse({"error": "unknown skill"}, status_code=404)
     if body.trust_state is not None and body.trust_state not in ("trusted", "untrusted"):
-        return JSONResponse({"error": "trust_state must be 'trusted' or 'untrusted'"},
-                            status_code=422)
+        return JSONResponse(
+            {"error": "trust_state must be 'trusted' or 'untrusted'"}, status_code=422
+        )
     if body.trust_state is not None and s["tier"] == "built-in":
-        return JSONResponse({"error": "built-in skills are managed in the repo"},
-                            status_code=409)
+        return JSONResponse({"error": "built-in skills are managed in the repo"}, status_code=409)
     if body.trust_state is not None or body.enabled is not None:
         await _gate_skill_write(request, p, s["tier"])
     if body.trust_state is not None:
@@ -616,8 +651,9 @@ async def patch_skill(skill_id: str, body: PatchSkillBody, request: Request,
     if body.enabled is not None:
         current = store.get_skill(skill_id, builtins, ident)
         if body.enabled and current["trust_state"] != "trusted":
-            return JSONResponse({"error": "skill needs review before it can be enabled"},
-                                status_code=409)
+            return JSONResponse(
+                {"error": "skill needs review before it can be enabled"}, status_code=409
+            )
         store.set_skill_enabled(skill_id, body.enabled, builtins, ident)
     out = store.get_skill(skill_id, builtins, ident)
     out.pop("body", None)
@@ -626,14 +662,12 @@ async def patch_skill(skill_id: str, body: PatchSkillBody, request: Request,
 
 
 @app.delete("/skills/{skill_id}")
-async def delete_skill(skill_id: str, request: Request,
-                       p: Principal = Depends(get_principal)):
+async def delete_skill(skill_id: str, request: Request, p: Principal = Depends(get_principal)):
     """Soft-delete an org/user skill; built-ins are repo-managed (409).
     Org rows: admin + network-backed check. User rows: ownership."""
     builtins = builtin_skill_records()
     if any(b["skill_id"] == skill_id for b in builtins):
-        return JSONResponse({"error": "built-in skills are managed in the repo"},
-                            status_code=409)
+        return JSONResponse({"error": "built-in skills are managed in the repo"}, status_code=409)
     ident = _ident(p)
     s = store.get_skill(skill_id, builtins, ident)
     if s is None:
@@ -647,6 +681,7 @@ async def delete_skill(skill_id: str, request: Request,
 # ---------------------------------------------------------------------------
 # v1 event envelope + REST/SSE transport (frontend rewrite)
 # ---------------------------------------------------------------------------
+
 
 class StartRunBody(BaseModel):
     message: str
@@ -679,15 +714,25 @@ def _v1_envelope(offset: int, evt: AgentProgress, run_id: str) -> dict:
     elif t == "tool_progress":
         base.update(type="tool.progress", step_id=evt.step_id, tool=evt.tool, message=evt.label)
     elif t == "tool_end":
-        base.update(type="tool.finished", step_id=evt.step_id, name=evt.tool,
-                    status="done", output_preview=evt.output_preview, duration_ms=evt.duration_ms)
+        base.update(
+            type="tool.finished",
+            step_id=evt.step_id,
+            name=evt.tool,
+            status="done",
+            output_preview=evt.output_preview,
+            duration_ms=evt.duration_ms,
+        )
     elif t == "plan":
         base.update(type="plan.snapshot", todos=evt.todos or [])
     elif t == "skill":
         info = evt.skill or {}
-        base.update(type="skill.activated", name=info.get("name", ""),
-                    tier=info.get("tier", ""), path=info.get("path", ""),
-                    description=info.get("description", ""))
+        base.update(
+            type="skill.activated",
+            name=info.get("name", ""),
+            tier=info.get("tier", ""),
+            path=info.get("path", ""),
+            description=info.get("description", ""),
+        )
     elif t in ("file", "artifact"):
         fname = evt.artifacts[0] if evt.artifacts else ""
         base.update(type="file.created", filename=fname, url=f"/artifacts/{run_id}/{fname}")
@@ -702,8 +747,9 @@ def _v1_envelope(offset: int, evt: AgentProgress, run_id: str) -> dict:
     return base
 
 
-async def _start_agent_run(client: Client, user_message: str, requested_thread: str | None,
-                           p: Principal):
+async def _start_agent_run(
+    client: Client, user_message: str, requested_thread: str | None, p: Principal
+):
     """Start a new agent workflow. Returns (run_id, workflow_id, thread_id).
 
     thread_id is server-generated and unguessable; a client may continue a
@@ -718,9 +764,8 @@ async def _start_agent_run(client: Client, user_message: str, requested_thread: 
     known_threads = {
         info.get("thread_id") for info in run_registry.values() if info.get("thread_id")
     }
-    continue_ok = (
-        requested_thread in known_threads
-        and (ident is None or store.owns_thread(requested_thread, ident))
+    continue_ok = requested_thread in known_threads and (
+        ident is None or store.owns_thread(requested_thread, ident)
     )
     thread_id = requested_thread if continue_ok else uuid.uuid4().hex
     run_registry[run_id] = {
@@ -743,7 +788,9 @@ async def _start_agent_run(client: Client, user_message: str, requested_thread: 
         await client.start_workflow(
             AgentWorkflow.run,
             WorkflowInput(
-                run_id=run_id, user_message=user_message, thread_id=thread_id,
+                run_id=run_id,
+                user_message=user_message,
+                thread_id=thread_id,
                 user_id=ident.user_id if ident else None,
                 org_id=ident.org_id if ident else None,
                 recursion_limit=AGENT_RECURSION_LIMIT,
@@ -807,18 +854,35 @@ def _finalize_interrupted(run_id: str, status) -> None:
     ts = datetime.now(timezone.utc).isoformat()
     info = run_registry.get(run_id) or {}
     uid, oid = info.get("user_id"), info.get("org_id")
-    _save_event(run_id, {
-        "v": 1, "run_id": run_id, "offset": base + 1, "ts": ts,
-        "user_id": uid, "org_id": oid, "type": "text.delta",
-        "text": "\n\n> ⚠️ *The live stream for this run was interrupted by a "
-                "backend restart, so the transcript above may be incomplete. "
-                f"The run finished on the server with status: {state}.*\n",
-    })
-    _save_event(run_id, {
-        "v": 1, "run_id": run_id, "offset": base + 2, "ts": ts,
-        "user_id": uid, "org_id": oid, "type": "run.finished",
-        "state": state, "note": "backfilled after backend restart",
-    })
+    _save_event(
+        run_id,
+        {
+            "v": 1,
+            "run_id": run_id,
+            "offset": base + 1,
+            "ts": ts,
+            "user_id": uid,
+            "org_id": oid,
+            "type": "text.delta",
+            "text": "\n\n> ⚠️ *The live stream for this run was interrupted by a "
+            "backend restart, so the transcript above may be incomplete. "
+            f"The run finished on the server with status: {state}.*\n",
+        },
+    )
+    _save_event(
+        run_id,
+        {
+            "v": 1,
+            "run_id": run_id,
+            "offset": base + 2,
+            "ts": ts,
+            "user_id": uid,
+            "org_id": oid,
+            "type": "run.finished",
+            "state": state,
+            "note": "backfilled after backend restart",
+        },
+    )
     if run_id in run_registry:
         run_registry[run_id]["status"] = state
         _save_registry()
@@ -987,6 +1051,7 @@ async def stream_run(run_id: str, request: Request, p: Principal = Depends(get_p
 
 if __name__ == "__main__":
     import uvicorn
+
     # Bind to loopback by default so the API isn't exposed to the whole
     # network. Override with HOST (e.g. 0.0.0.0) behind a trusted proxy.
     host = os.environ.get("HOST", "127.0.0.1")

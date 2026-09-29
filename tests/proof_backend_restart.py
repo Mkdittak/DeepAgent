@@ -1,4 +1,5 @@
 import sys, time, subprocess, os, json, asyncio, urllib.request
+
 sys.path.insert(0, ".")
 from sse_client import start_run, stream, BASE
 from temporalio.client import Client
@@ -9,17 +10,37 @@ EVENTS = os.path.join(PROJ, "artifacts", ".events")
 
 
 def uvicorn_pids():
-    out = subprocess.run(["powershell", "-NoProfile", "-Command",
-        "Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | "
-        "Where-Object { $_.CommandLine -match 'uvicorn' } | ForEach-Object { $_.ProcessId }"],
-        capture_output=True, text=True).stdout
+    out = subprocess.run(
+        [
+            "powershell",
+            "-NoProfile",
+            "-Command",
+            "Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | "
+            "Where-Object { $_.CommandLine -match 'uvicorn' } | ForEach-Object { $_.ProcessId }",
+        ],
+        capture_output=True,
+        text=True,
+    ).stdout
     return [int(x) for x in out.split()]
 
 
 def start_backend():
     return subprocess.Popen(
-        [PY, "-m", "uvicorn", "backend.main:app", "--host", "127.0.0.1", "--port", "8000", "--no-access-log"],
-        cwd=PROJ, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        [
+            PY,
+            "-m",
+            "uvicorn",
+            "backend.main:app",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            "8000",
+            "--no-access-log",
+        ],
+        cwd=PROJ,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
 
 
 def jsonl(run_id):
@@ -46,8 +67,10 @@ print("run:", run_id)
 
 time.sleep(6)
 partial = jsonl(run_id)
-print("partial JSONL before restart: lines=%d, terminal=%s"
-      % (len(partial), any(e["type"] == "run.finished" for e in partial)))
+print(
+    "partial JSONL before restart: lines=%d, terminal=%s"
+    % (len(partial), any(e["type"] == "run.finished" for e in partial))
+)
 
 for pid in uvicorn_pids():
     subprocess.run(["taskkill", "/F", "/PID", str(pid)], capture_output=True)
@@ -57,7 +80,8 @@ time.sleep(2)
 start_backend()
 for _ in range(30):
     try:
-        urllib.request.urlopen(BASE + "/health", timeout=2); break
+        urllib.request.urlopen(BASE + "/health", timeout=2)
+        break
     except Exception:
         time.sleep(1)
 print("backend RESTARTED (startup recovery ran)")
@@ -70,11 +94,20 @@ final = jsonl(run_id)
 has_terminal = any(e["type"] == "run.finished" for e in final)
 has_notice = any("interrupted by a backend restart" in e.get("text", "") for e in final)
 replay = stream(run_id)
-print("final JSONL: lines=%d, run.finished=%s, incompleteness-notice=%s"
-      % (len(final), has_terminal, has_notice))
+print(
+    "final JSONL: lines=%d, run.finished=%s, incompleteness-notice=%s"
+    % (len(final), has_terminal, has_notice)
+)
 print("backfilled beyond partial:", len(final) > len(partial))
-print("reconnect replay: events=%d terminal=%s"
-      % (len(replay), replay[-1]["type"] if replay else None))
-print("PROOF (running-at-restart -> FULL backfill, real terminal, NO notice):",
-      has_terminal and not has_notice and len(final) > len(partial)
-      and bool(replay) and replay[-1]["type"] == "run.finished")
+print(
+    "reconnect replay: events=%d terminal=%s"
+    % (len(replay), replay[-1]["type"] if replay else None)
+)
+print(
+    "PROOF (running-at-restart -> FULL backfill, real terminal, NO notice):",
+    has_terminal
+    and not has_notice
+    and len(final) > len(partial)
+    and bool(replay)
+    and replay[-1]["type"] == "run.finished",
+)

@@ -17,6 +17,7 @@ from agent.context import get_run_context
 # Per-run helpers — read the current run's context (no process globals)
 # ---------------------------------------------------------------------------
 
+
 async def _emit(label: str, tool: str):
     """Emit a progress event if the current run wired a callback."""
     ctx = get_run_context()
@@ -126,6 +127,7 @@ def _wrap_untrusted(result_list: list[dict]) -> str:
 # PPTX generation
 # ---------------------------------------------------------------------------
 
+
 async def generate_pptx(title: str, slides: list[dict]) -> str:
     """Create a PowerPoint presentation and save it as presentation.pptx.
 
@@ -181,6 +183,7 @@ async def generate_pptx(title: str, slides: list[dict]) -> str:
 # XLSX generation
 # ---------------------------------------------------------------------------
 
+
 async def generate_xlsx(title: str, headers: list[str], rows: list[list]) -> str:
     """Create an Excel spreadsheet and save it as results.xlsx.
 
@@ -222,6 +225,7 @@ async def generate_xlsx(title: str, headers: list[str], rows: list[list]) -> str
 # ---------------------------------------------------------------------------
 # HTML / landing page generation
 # ---------------------------------------------------------------------------
+
 
 async def generate_html(title: str, body_html: str) -> str:
     """Create an HTML landing page and save it as index.html.

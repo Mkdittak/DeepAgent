@@ -1,4 +1,5 @@
 import sys
+
 sys.path.insert(0, ".")
 from sse_client import start_run, stream
 

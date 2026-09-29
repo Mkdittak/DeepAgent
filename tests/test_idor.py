@@ -42,11 +42,19 @@ for label, p in (("B (same org, plain member)", h.B), ("C (other org, admin)", h
     ):
         check(f"{label}: {name} -> 404", resp.status_code == 404)
         check(f"{label}: {name} leaks nothing", "A's" not in resp.text and "pwned" not in resp.text)
-    check(f"{label}: /threads listing excludes A", thread_a not in {t["thread_id"] for t in c.get("/threads").json()})
-    check(f"{label}: /runs listing excludes A", run_a not in {x["run_id"] for x in c.get("/runs").json()})
+    check(
+        f"{label}: /threads listing excludes A",
+        thread_a not in {t["thread_id"] for t in c.get("/threads").json()},
+    )
+    check(
+        f"{label}: /runs listing excludes A",
+        run_a not in {x["run_id"] for x in c.get("/runs").json()},
+    )
     check(f"{label}: /skills listing excludes A's user skill", "a-private" not in h.skill_names())
     hijack = c.post("/runs", json={"message": "continue A's thread", "thread_id": thread_a}).json()
-    check(f"{label}: continuing A's thread_id starts a FRESH thread", hijack["thread_id"] != thread_a)
+    check(
+        f"{label}: continuing A's thread_id starts a FRESH thread", hijack["thread_id"] != thread_a
+    )
 
 # Nothing of A's was modified by the attempts above.
 h.as_(h.A)

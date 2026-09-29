@@ -61,6 +61,7 @@ def auth_enabled() -> bool:
 @dataclass(frozen=True)
 class Principal:
     """Who is calling. user_id = Stytch member_id, org_id = organization_id."""
+
     user_id: str
     org_id: str
     roles: list[str] = field(default_factory=list)
@@ -76,9 +77,7 @@ class Principal:
 # view.
 LEGACY_USER_ID = "legacy"
 LEGACY_ORG_ID = "legacy"
-LEGACY_PRINCIPAL = Principal(
-    user_id=LEGACY_USER_ID, org_id=LEGACY_ORG_ID, roles=[ADMIN_ROLE]
-)
+LEGACY_PRINCIPAL = Principal(user_id=LEGACY_USER_ID, org_id=LEGACY_ORG_ID, roles=[ADMIN_ROLE])
 
 
 # ---------------------------------------------------------------------------
@@ -99,9 +98,7 @@ def _build_client():
     if not project_id or not secret:
         # Fail fast and loud: the flag is on but the keys aren't. Falling back
         # to no-auth here would silently disable the whole feature.
-        raise RuntimeError(
-            "AUTH_ENABLED=true but STYTCH_PROJECT_ID / STYTCH_SECRET are not set"
-        )
+        raise RuntimeError("AUTH_ENABLED=true but STYTCH_PROJECT_ID / STYTCH_SECRET are not set")
     with warnings.catch_warnings():
         # The SDK warns "Test version of Stytch not intended for production
         # use" on every test-env construction; that's the intended env here.
@@ -126,6 +123,7 @@ def _reset_client_for_tests() -> None:
 # ---------------------------------------------------------------------------
 # Request -> Principal
 # ---------------------------------------------------------------------------
+
 
 def _bearer(request: Request) -> str | None:
     auth = request.headers.get("authorization", "")
@@ -184,9 +182,13 @@ async def get_principal(request: Request) -> Principal:
     return _principal_from_session(ms)
 
 
-async def reverify_network(request: Request, principal: Principal,
-                           *, resource_id: str = ORG_SKILLS_RESOURCE,
-                           action: str = ORG_SKILLS_MANAGE) -> Principal:
+async def reverify_network(
+    request: Request,
+    principal: Principal,
+    *,
+    resource_id: str = ORG_SKILLS_RESOURCE,
+    action: str = ORG_SKILLS_MANAGE,
+) -> Principal:
     """Network-backed re-verification for sensitive routes.
 
     Uses the opaque X-Session-Token with sessions.authenticate_async (STYTCH_

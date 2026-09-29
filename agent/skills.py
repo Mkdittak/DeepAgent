@@ -139,8 +139,10 @@ def parse_skill_md(body: str) -> tuple[dict | None, str | None]:
     name = data.get("name")
     description = data.get("description")
     if not isinstance(name, str) or not SKILL_NAME_RE.match(name):
-        return None, ("name is required: 1-64 lowercase letters, digits, and "
-                      "hyphens; no leading/trailing/consecutive hyphens")
+        return None, (
+            "name is required: 1-64 lowercase letters, digits, and "
+            "hyphens; no leading/trailing/consecutive hyphens"
+        )
     if not isinstance(description, str) or not 1 <= len(description) <= MAX_DESCRIPTION_LEN:
         return None, f"description is required: 1-{MAX_DESCRIPTION_LEN} characters"
     compatibility = data.get("compatibility")
@@ -192,17 +194,19 @@ def builtin_skill_records() -> list[dict]:
                 except (UnicodeDecodeError, OSError):
                     continue
                 files["/".join([*rel_root.parts, fname])] = content
-        records.append({
-            "skill_id": f"builtin-{meta['name']}",
-            "name": meta["name"],
-            "tier": "built-in",
-            "description": meta["description"],
-            "source": "repo",
-            "trust_state": "trusted",
-            "enabled": True,
-            "body": body,
-            "files": files,
-        })
+        records.append(
+            {
+                "skill_id": f"builtin-{meta['name']}",
+                "name": meta["name"],
+                "tier": "built-in",
+                "description": meta["description"],
+                "source": "repo",
+                "trust_state": "trusted",
+                "enabled": True,
+                "body": body,
+                "files": files,
+            }
+        )
     return records
 
 
@@ -232,7 +236,8 @@ def _registry_rows(user_id: str | None = None, org_id: str | None = None) -> dic
     if not isinstance(data, dict):
         return {}
     return {
-        sid: row for sid, row in data.items()
+        sid: row
+        for sid, row in data.items()
         if isinstance(row, dict) and _row_in_scope(row, user_id, org_id)
     }
 

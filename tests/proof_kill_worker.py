@@ -1,4 +1,5 @@
 import sys, time, threading, subprocess, os
+
 sys.path.insert(0, ".")
 from sse_client import start_run, stream
 
@@ -8,15 +9,23 @@ PY = os.path.join(PROJ, ".venv", "Scripts", "python.exe")
 
 def worker_pids():
     out = subprocess.run(
-        ["powershell", "-NoProfile", "-Command",
-         "Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | "
-         "Where-Object { $_.CommandLine -match 'temporal.worker' } | "
-         "ForEach-Object { $_.ProcessId }"],
-        capture_output=True, text=True).stdout
+        [
+            "powershell",
+            "-NoProfile",
+            "-Command",
+            "Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | "
+            "Where-Object { $_.CommandLine -match 'temporal.worker' } | "
+            "ForEach-Object { $_.ProcessId }",
+        ],
+        capture_output=True,
+        text=True,
+    ).stdout
     return [int(x) for x in out.split()]
 
 
-r = start_run("Write a detailed 300-word adventure story about a lighthouse keeper who discovers a secret.")
+r = start_run(
+    "Write a detailed 300-word adventure story about a lighthouse keeper who discovers a secret."
+)
 run_id = r["run_id"]
 print("run:", run_id, flush=True)
 
@@ -52,8 +61,13 @@ time.sleep(2)
 # Restart the worker so Temporal can retry the activity (after heartbeat timeout).
 env = os.environ.copy()
 env["PYTHONUNBUFFERED"] = "1"
-subprocess.Popen([PY, "-u", "-m", "temporal.worker"], cwd=PROJ, env=env,
-                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+subprocess.Popen(
+    [PY, "-u", "-m", "temporal.worker"],
+    cwd=PROJ,
+    env=env,
+    stdout=subprocess.DEVNULL,
+    stderr=subprocess.DEVNULL,
+)
 print("restarted worker; waiting for retry (heartbeat timeout ~5 min)...", flush=True)
 
 done.wait(timeout=400)
@@ -67,5 +81,8 @@ print("offsets:", offs, flush=True)
 print("offsets strictly monotonic & unique (no collision/splice):", mono_unique, flush=True)
 print("run.started count (>=2 means retry rendered as a fresh turn):", len(run_starts), flush=True)
 print("terminal:", collected[-1]["type"] if collected else None, flush=True)
-print("PROOF 1 (kill worker -> clean stream):",
-      mono_unique and len(collected) > len(pre) and (collected[-1]["type"] == "run.finished"), flush=True)
+print(
+    "PROOF 1 (kill worker -> clean stream):",
+    mono_unique and len(collected) > len(pre) and (collected[-1]["type"] == "run.finished"),
+    flush=True,
+)

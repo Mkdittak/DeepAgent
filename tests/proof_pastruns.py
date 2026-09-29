@@ -1,4 +1,5 @@
 import sys, time, asyncio
+
 sys.path.insert(0, ".")
 from sse_client import start_run, stream
 from temporalio.client import Client
@@ -31,6 +32,8 @@ time.sleep(1)
 replay = stream(run_id, last_event_id=None)
 rtypes = [e["type"] for e in replay]
 print("REPLAY: events=%d types=%s" % (len(replay), rtypes))
-print("full conversation replays (has run.started + text + run.finished):",
-      "run.started" in rtypes and "run.finished" in rtypes and any(t == "text.delta" for t in rtypes))
+print(
+    "full conversation replays (has run.started + text + run.finished):",
+    "run.started" in rtypes and "run.finished" in rtypes and any(t == "text.delta" for t in rtypes),
+)
 print("PROOF (Past Runs finished-run replay):", len(replay) > 0 and rtypes[-1] == "run.finished")

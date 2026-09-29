@@ -1,4 +1,5 @@
 import sys, asyncio
+
 sys.path.insert(0, ".")
 from sse_client import start_run, stream
 from temporalio.client import Client
@@ -26,5 +27,7 @@ print("workflow status (2=COMPLETED):", status, "(no live viewer attached)")
 replay = stream(run_id)
 rtypes = [e["type"] for e in replay]
 print("REPLAY of a never-watched run:", len(replay), rtypes)
-print("PROOF (background persister covers unwatched runs):",
-      len(replay) > 0 and rtypes[-1] == "run.finished")
+print(
+    "PROOF (background persister covers unwatched runs):",
+    len(replay) > 0 and rtypes[-1] == "run.finished",
+)

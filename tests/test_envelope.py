@@ -26,5 +26,7 @@ cases = [
 for c in cases:
     env = _v1_envelope(5, c, "r1")
     assert env["v"] == 1 and env["offset"] == 5 and env["user_id"] is None and env["org_id"] is None
-    print(f"{c.type:12} -> {env['type']:16} keys={sorted(k for k in env if k not in ('v','run_id','offset','ts','user_id','org_id'))}")
+    print(
+        f"{c.type:12} -> {env['type']:16} keys={sorted(k for k in env if k not in ('v', 'run_id', 'offset', 'ts', 'user_id', 'org_id'))}"
+    )
 print("all envelope mappings carry v1 + null identity fields: OK")

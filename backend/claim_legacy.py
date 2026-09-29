@@ -45,9 +45,13 @@ def _save_registry(reg: dict) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("--org", required=True, help="Stytch organization_id to own the data")
-    ap.add_argument("--member", required=True, help="Stytch member_id (in that org) to own the data")
+    ap.add_argument(
+        "--member", required=True, help="Stytch member_id (in that org) to own the data"
+    )
     ap.add_argument("--from-user", default=auth.LEGACY_USER_ID)
     ap.add_argument("--from-org", default=auth.LEGACY_ORG_ID)
     ap.add_argument("--unarchive", action="store_true", help="clear deleted_at on claimed threads")
@@ -59,8 +63,18 @@ def main(argv: list[str] | None = None) -> int:
     src = store.Identity(a.from_user, a.from_org)
     dst = store.Identity(a.member, a.org)
     if a.dry_run:
-        n_runs = sum(1 for v in reg.values() if isinstance(v, dict) and v.get("user_id") == src.user_id and v.get("org_id") == src.org_id)
-        n_thr = sum(1 for t in store._threads.values() if t.get("user_id") == src.user_id and t.get("org_id") == src.org_id)
+        n_runs = sum(
+            1
+            for v in reg.values()
+            if isinstance(v, dict)
+            and v.get("user_id") == src.user_id
+            and v.get("org_id") == src.org_id
+        )
+        n_thr = sum(
+            1
+            for t in store._threads.values()
+            if t.get("user_id") == src.user_id and t.get("org_id") == src.org_id
+        )
         print(f"dry run: would move {n_runs} runs, {n_thr} threads from {src} to {dst}")
         return 0
     counts = store.claim_identity(reg, src, dst, unarchive=a.unarchive)

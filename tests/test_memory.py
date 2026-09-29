@@ -3,6 +3,7 @@ import os
 import tempfile
 
 from dotenv import load_dotenv
+
 load_dotenv(os.path.join(os.getcwd(), ".env"))
 
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
@@ -51,7 +52,9 @@ async def main():
     print("  PERSIST PASS:", "teal" in r_restart.lower())
 
     print("Isolation (different thread must NOT know):")
-    r_other = await ask(db, "thread-xyz", "What is my favorite color? If you don't know, say 'unknown'.")
+    r_other = await ask(
+        db, "thread-xyz", "What is my favorite color? If you don't know, say 'unknown'."
+    )
     print("  ->", r_other.strip()[:120])
     print("  ISOLATION PASS:", "teal" not in r_other.lower())
 

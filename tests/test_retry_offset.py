@@ -2,6 +2,7 @@
 durable WorkflowStream assigns fresh, monotonic offsets, so offset-dedup keeps
 both attempts (no drop/splice) where seq-dedup could not. Real temporalio, no LLM.
 """
+
 from dataclasses import dataclass
 from datetime import timedelta
 
@@ -61,8 +62,10 @@ async def main():
     task_queue = "retry-proof-q"
 
     async with Worker(
-        client, task_queue=task_queue,
-        workflows=[RetryStreamWorkflow], activities=[publish_activity],
+        client,
+        task_queue=task_queue,
+        workflows=[RetryStreamWorkflow],
+        activities=[publish_activity],
     ):
         await client.start_workflow(RetryStreamWorkflow.run, id=wf_id, task_queue=task_queue)
         sc = WorkflowStreamClient.create(client, wf_id)
@@ -79,15 +82,20 @@ async def main():
         print("   ", row)
     print("offsets:", offsets)
     print("seqs   :", seqs)
-    print("offsets strictly increasing & unique:",
-          offsets == sorted(offsets) and len(set(offsets)) == len(offsets))
+    print(
+        "offsets strictly increasing & unique:",
+        offsets == sorted(offsets) and len(set(offsets)) == len(offsets),
+    )
     print("seq DID restart across the retry (the old bug's trigger):", seqs == [0, 1, 2, 0, 1, 2])
-    seen = set(); drop_seq = sum(1 for s in seqs if (s in seen) or (seen.add(s) or False))
-    seeo = set(); drop_off = sum(1 for o in offsets if (o in seeo) or (seeo.add(o) or False))
+    seen = set()
+    drop_seq = sum(1 for s in seqs if (s in seen) or (seen.add(s) or False))
+    seeo = set()
+    drop_off = sum(1 for o in offsets if (o in seeo) or (seeo.add(o) or False))
     print(f"events a SEQ-dedup client DROPS: {drop_seq}  (this was the corruption)")
     print(f"events the OFFSET-dedup client DROPS: {drop_off}  (clean: nothing lost)")
 
 
 if __name__ == "__main__":
     import asyncio
+
     asyncio.run(main())

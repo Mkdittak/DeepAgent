@@ -1,4 +1,5 @@
 import sys, threading
+
 sys.path.insert(0, ".")
 from sse_client import start_run, stream
 
@@ -8,15 +9,19 @@ print("run:", run_id)
 
 results = {}
 
+
 def tab(name):
     evs = stream(run_id)  # each tab subscribes independently from offset 0
     results[name] = [e["offset"] for e in evs]
 
+
 # Two "browser tabs" watching the same run at the same time.
 t1 = threading.Thread(target=tab, args=("tabA",))
 t2 = threading.Thread(target=tab, args=("tabB",))
-t1.start(); t2.start()
-t1.join(); t2.join()
+t1.start()
+t2.start()
+t1.join()
+t2.join()
 
 a, b = results["tabA"], results["tabB"]
 print("tabA events:", len(a), "tabB events:", len(b))

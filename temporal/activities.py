@@ -25,6 +25,7 @@ logging.basicConfig(level=logging.INFO)
 # Data classes
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class AgentInput:
     run_id: str
@@ -34,24 +35,24 @@ class AgentInput:
     # worker has no session to verify and must not try. None = pre-auth run.
     user_id: str | None = None
     org_id: str | None = None
-    recursion_limit: int = 30     # agent step budget, set per run by the API
+    recursion_limit: int = 30  # agent step budget, set per run by the API
 
 
 @dataclass
 class AgentProgress:
-    seq: int                              # monotonic within a run, starts at 0
-    ts: str                               # ISO-8601 UTC
+    seq: int  # monotonic within a run, starts at 0
+    ts: str  # ISO-8601 UTC
     run_id: str
-    type: str                             # run_start, plan, llm_token, tool_start, tool_progress, tool_end, artifact, error, cancelled, done
-    label: str                            # human-readable one-liner for the UI
-    step_id: str | None = None            # correlates tool_start with tool_end
+    type: str  # run_start, plan, llm_token, tool_start, tool_progress, tool_end, artifact, error, cancelled, done
+    label: str  # human-readable one-liner for the UI
+    step_id: str | None = None  # correlates tool_start with tool_end
     tool: str | None = None
-    args: dict | None = None              # redacted; see _redact
-    output_preview: str | None = None     # truncated to 500 chars
-    duration_ms: int | None = None        # set on tool_end
+    args: dict | None = None  # redacted; see _redact
+    output_preview: str | None = None  # truncated to 500 chars
+    duration_ms: int | None = None  # set on tool_end
     artifacts: list[str] = field(default_factory=list)
-    todos: list[dict] | None = None       # structured plan.snapshot (write_todos)
-    skill: dict | None = None             # skill.activated: {name, tier, path, description}
+    todos: list[dict] | None = None  # structured plan.snapshot (write_todos)
+    skill: dict | None = None  # skill.activated: {name, tier, path, description}
 
 
 # ---------------------------------------------------------------------------
@@ -101,6 +102,7 @@ def _extract_text(content) -> str:
 # Activity
 # ---------------------------------------------------------------------------
 
+
 @activity.defn
 async def run_deep_agent(input: AgentInput) -> str:
     """
@@ -130,11 +132,15 @@ async def run_deep_agent(input: AgentInput) -> str:
         progress = stream_client.topic("progress", type=AgentProgress)
 
         # --- run_start ---
-        progress.publish(AgentProgress(
-            seq=next_seq(), ts=_now_iso(), run_id=input.run_id,
-            type="run_start",
-            label=input.user_message,
-        ))
+        progress.publish(
+            AgentProgress(
+                seq=next_seq(),
+                ts=_now_iso(),
+                run_id=input.run_id,
+                type="run_start",
+                label=input.user_message,
+            )
+        )
 
         # Create and invoke the agent, with a persistent conversation
         # checkpointer so turns sharing a thread_id share memory. SQLite file
@@ -164,43 +170,57 @@ async def run_deep_agent(input: AgentInput) -> str:
         # Wire up live progress callback so tools can stream to the WS
         async def _on_tool_progress(label: str, tool_name: str):
             active_step_id = next(iter(tool_timers), None)
-            progress.publish(AgentProgress(
-                seq=next_seq(), ts=_now_iso(), run_id=input.run_id,
-                type="tool_progress",
-                label=label,
-                step_id=active_step_id,
-                tool=tool_name,
-            ))
+            progress.publish(
+                AgentProgress(
+                    seq=next_seq(),
+                    ts=_now_iso(),
+                    run_id=input.run_id,
+                    type="tool_progress",
+                    label=label,
+                    step_id=active_step_id,
+                    tool=tool_name,
+                )
+            )
 
         # Emit file.created at write time (tools call this as they save files).
         async def _on_file(filename: str):
-            progress.publish(AgentProgress(
-                seq=next_seq(), ts=_now_iso(), run_id=input.run_id,
-                type="file",
-                label=f"Created: {filename}",
-                artifacts=[filename],
-            ))
+            progress.publish(
+                AgentProgress(
+                    seq=next_seq(),
+                    ts=_now_iso(),
+                    run_id=input.run_id,
+                    type="file",
+                    label=f"Created: {filename}",
+                    artifacts=[filename],
+                )
+            )
 
         # Bind this run's context to the current task. Isolated per activity —
         # concurrent runs no longer share ARTIFACT_DIR or the progress callback.
-        set_run_context(RunContext(
-            run_id=input.run_id,
-            artifact_dir=artifact_dir,
-            progress_cb=_on_tool_progress,
-            file_cb=_on_file,
-            thread_id=input.thread_id,
-            user_id=input.user_id,
-            org_id=input.org_id,
-        ))
+        set_run_context(
+            RunContext(
+                run_id=input.run_id,
+                artifact_dir=artifact_dir,
+                progress_cb=_on_tool_progress,
+                file_cb=_on_file,
+                thread_id=input.thread_id,
+                user_id=input.user_id,
+                org_id=input.org_id,
+            )
+        )
 
         def flush_tokens():
             nonlocal token_buffer
             if token_buffer:
-                progress.publish(AgentProgress(
-                    seq=next_seq(), ts=_now_iso(), run_id=input.run_id,
-                    type="llm_token",
-                    label=token_buffer,
-                ))
+                progress.publish(
+                    AgentProgress(
+                        seq=next_seq(),
+                        ts=_now_iso(),
+                        run_id=input.run_id,
+                        type="llm_token",
+                        label=token_buffer,
+                    )
+                )
                 token_buffer = ""
 
         try:
@@ -217,6 +237,7 @@ async def run_deep_agent(input: AgentInput) -> str:
             # (instruction-only v1).
             from agent.skills import seed_files, skill_index
             from deepagents.backends.utils import create_file_data
+
             skill_seed = seed_files(user_id=input.user_id, org_id=input.org_id)
             skills_by_path = skill_index(skill_seed)
             skills_activated: set[str] = set()  # dedupe skill.activated per run
@@ -239,12 +260,16 @@ async def run_deep_agent(input: AgentInput) -> str:
                             info = skills_by_path.get(path)
                             if info and path not in skills_activated:
                                 skills_activated.add(path)
-                                progress.publish(AgentProgress(
-                                    seq=next_seq(), ts=_now_iso(), run_id=input.run_id,
-                                    type="skill",
-                                    label=f"Skill in context: {info['name']}",
-                                    skill={**info, "path": path},
-                                ))
+                                progress.publish(
+                                    AgentProgress(
+                                        seq=next_seq(),
+                                        ts=_now_iso(),
+                                        run_id=input.run_id,
+                                        type="skill",
+                                        label=f"Skill in context: {info['name']}",
+                                        skill={**info, "path": path},
+                                    )
+                                )
                 except Exception as e:  # never let a UX hint break a run
                     logger.warning("carried-over skill scan failed: %s", e)
             async for ev in agent.astream_events(
@@ -287,12 +312,16 @@ async def run_deep_agent(input: AgentInput) -> str:
                     if tool_name == "write_todos":
                         todos = raw_args.get("todos", []) if isinstance(raw_args, dict) else []
                         plan_step_ids.add(run_id)
-                        progress.publish(AgentProgress(
-                            seq=next_seq(), ts=_now_iso(), run_id=input.run_id,
-                            type="plan",
-                            label="Updated plan",
-                            todos=todos if isinstance(todos, list) else [],
-                        ))
+                        progress.publish(
+                            AgentProgress(
+                                seq=next_seq(),
+                                ts=_now_iso(),
+                                run_id=input.run_id,
+                                type="plan",
+                                label="Updated plan",
+                                todos=todos if isinstance(todos, list) else [],
+                            )
+                        )
                     else:
                         # A read_file on a seeded SKILL.md is a skill
                         # activation (progressive disclosure stage 2) — emit
@@ -303,21 +332,29 @@ async def run_deep_agent(input: AgentInput) -> str:
                             info = skills_by_path.get(skill_path)
                             if info and skill_path not in skills_activated:
                                 skills_activated.add(skill_path)
-                                progress.publish(AgentProgress(
-                                    seq=next_seq(), ts=_now_iso(), run_id=input.run_id,
-                                    type="skill",
-                                    label=f"Skill activated: {info['name']}",
-                                    skill={**info, "path": skill_path},
-                                ))
+                                progress.publish(
+                                    AgentProgress(
+                                        seq=next_seq(),
+                                        ts=_now_iso(),
+                                        run_id=input.run_id,
+                                        type="skill",
+                                        label=f"Skill activated: {info['name']}",
+                                        skill={**info, "path": skill_path},
+                                    )
+                                )
                         tool_timers[run_id] = time.monotonic()
-                        progress.publish(AgentProgress(
-                            seq=next_seq(), ts=_now_iso(), run_id=input.run_id,
-                            type="tool_start",
-                            label=f"Using tool: {tool_name}",
-                            step_id=run_id,
-                            tool=tool_name,
-                            args=args,
-                        ))
+                        progress.publish(
+                            AgentProgress(
+                                seq=next_seq(),
+                                ts=_now_iso(),
+                                run_id=input.run_id,
+                                type="tool_start",
+                                label=f"Using tool: {tool_name}",
+                                step_id=run_id,
+                                tool=tool_name,
+                                args=args,
+                            )
+                        )
 
                 # --- tool_end ---
                 elif event_type == "on_tool_end":
@@ -333,17 +370,23 @@ async def run_deep_agent(input: AgentInput) -> str:
                         preview = output_str[:500] if output_str else None
 
                         start_time = tool_timers.pop(run_id, None)
-                        duration = int((time.monotonic() - start_time) * 1000) if start_time else None
+                        duration = (
+                            int((time.monotonic() - start_time) * 1000) if start_time else None
+                        )
 
-                        progress.publish(AgentProgress(
-                            seq=next_seq(), ts=_now_iso(), run_id=input.run_id,
-                            type="tool_end",
-                            label=f"Finished: {tool_name}",
-                            step_id=run_id,
-                            tool=tool_name,
-                            output_preview=preview,
-                            duration_ms=duration,
-                        ))
+                        progress.publish(
+                            AgentProgress(
+                                seq=next_seq(),
+                                ts=_now_iso(),
+                                run_id=input.run_id,
+                                type="tool_end",
+                                label=f"Finished: {tool_name}",
+                                step_id=run_id,
+                                tool=tool_name,
+                                output_preview=preview,
+                                duration_ms=duration,
+                            )
+                        )
 
                 # --- tool_progress (custom events from inside tools) ---
                 elif event_type == "on_custom_event":
@@ -352,13 +395,17 @@ async def run_deep_agent(input: AgentInput) -> str:
                         tool_name = data.get("tool", None) if isinstance(data, dict) else None
                         # Find the active step_id from tool_timers
                         active_step_id = next(iter(tool_timers), None)
-                        progress.publish(AgentProgress(
-                            seq=next_seq(), ts=_now_iso(), run_id=input.run_id,
-                            type="tool_progress",
-                            label=label,
-                            step_id=active_step_id,
-                            tool=tool_name,
-                        ))
+                        progress.publish(
+                            AgentProgress(
+                                seq=next_seq(),
+                                ts=_now_iso(),
+                                run_id=input.run_id,
+                                type="tool_progress",
+                                label=label,
+                                step_id=active_step_id,
+                                tool=tool_name,
+                            )
+                        )
 
                 # (Plan snapshots are emitted from the write_todos tool_start
                 # above, with structured todos — no string-dump chain handler.)
@@ -368,19 +415,27 @@ async def run_deep_agent(input: AgentInput) -> str:
 
         except asyncio.CancelledError:
             # Phase 2: cancellation support
-            progress.publish(AgentProgress(
-                seq=next_seq(), ts=_now_iso(), run_id=input.run_id,
-                type="cancelled",
-                label="Run cancelled by user",
-            ))
+            progress.publish(
+                AgentProgress(
+                    seq=next_seq(),
+                    ts=_now_iso(),
+                    run_id=input.run_id,
+                    type="cancelled",
+                    label="Run cancelled by user",
+                )
+            )
             raise
         except Exception as e:
             logger.error(f"Agent error: {e}", exc_info=True)
-            progress.publish(AgentProgress(
-                seq=next_seq(), ts=_now_iso(), run_id=input.run_id,
-                type="error",
-                label=f"{type(e).__name__}: {str(e)[:300]}",
-            ))
+            progress.publish(
+                AgentProgress(
+                    seq=next_seq(),
+                    ts=_now_iso(),
+                    run_id=input.run_id,
+                    type="error",
+                    label=f"{type(e).__name__}: {str(e)[:300]}",
+                )
+            )
             raise  # re-raise so Temporal's retry policy can act
         finally:
             # Close the checkpointer connection whether the run succeeded,
@@ -390,27 +445,31 @@ async def run_deep_agent(input: AgentInput) -> str:
         # List final artifacts by scanning the directory
         produced = []
         if os.path.isdir(artifact_dir):
-            produced = [
-                f for f in os.listdir(artifact_dir) if not f.startswith("~$")
-            ]
+            produced = [f for f in os.listdir(artifact_dir) if not f.startswith("~$")]
         for fname in produced:
-            progress.publish(AgentProgress(
-                seq=next_seq(), ts=_now_iso(), run_id=input.run_id,
-                type="artifact",
-                label=f"Produced: {fname}",
-                artifacts=[fname],
-            ))
+            progress.publish(
+                AgentProgress(
+                    seq=next_seq(),
+                    ts=_now_iso(),
+                    run_id=input.run_id,
+                    type="artifact",
+                    label=f"Produced: {fname}",
+                    artifacts=[fname],
+                )
+            )
 
         # --- done ---
-        progress.publish(AgentProgress(
-            seq=next_seq(), ts=_now_iso(), run_id=input.run_id,
-            type="done",
-            label=final_response[:500] if final_response else "Task completed",
-            artifacts=produced,
-        ))
+        progress.publish(
+            AgentProgress(
+                seq=next_seq(),
+                ts=_now_iso(),
+                run_id=input.run_id,
+                type="done",
+                label=final_response[:500] if final_response else "Task completed",
+                artifacts=produced,
+            )
+        )
 
     # No global cleanup needed: RunContext is a task-scoped ContextVar and is
     # discarded when this activity's task ends.
     return final_response or f"Task completed. Artifacts: {produced}"
-
-

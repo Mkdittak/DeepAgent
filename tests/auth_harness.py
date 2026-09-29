@@ -68,17 +68,17 @@ class _FakeTemporal:
 
 
 class Harness:
-    A = Principal("member-A", "org-X", ["stytch_admin"])   # org X admin
+    A = Principal("member-A", "org-X", ["stytch_admin"])  # org X admin
     B = Principal("member-B", "org-X", ["stytch_member"])  # org X plain member
-    C = Principal("member-C", "org-Y", ["stytch_admin"])   # org Y admin
+    C = Principal("member-C", "org-Y", ["stytch_admin"])  # org Y admin
 
     def __init__(self):
         self.m = m
         self.auth = auth
         self.store = store
         self.tmp = _TMP
-        self.started: list = []          # WorkflowInputs handed to Temporal
-        self.reverify_calls: list = []   # principals that hit the network path
+        self.started: list = []  # WorkflowInputs handed to Temporal
+        self.reverify_calls: list = []  # principals that hit the network path
         self._who = {"p": self.A}
 
         m.app.dependency_overrides[get_principal] = lambda: self._who["p"]

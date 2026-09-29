@@ -89,6 +89,7 @@ class Identity(NamedTuple):
 
     Tenancy here is row scoping only. Production row-level security (Postgres
     RLS) is a separately tracked step, deliberately not introduced here."""
+
     user_id: str
     org_id: str
 
@@ -221,8 +222,9 @@ def backfill_identity(runs: dict, user_id: str, org_id: str) -> dict[str, int]:
     return counts
 
 
-def claim_identity(runs: dict, source: "Identity", target: "Identity",
-                   unarchive: bool = False) -> dict[str, int]:
+def claim_identity(
+    runs: dict, source: "Identity", target: "Identity", unarchive: bool = False
+) -> dict[str, int]:
     """Move every row owned by `source` (typically the LEGACY bucket) to
     `target` — a real member/org — so pre-auth data becomes someone's.
 
@@ -238,17 +240,21 @@ def claim_identity(runs: dict, source: "Identity", target: "Identity",
     counts = {"threads": 0, "runs": 0, "skills": 0, "unarchived": 0}
     for t in _threads.values():
         if _owned(t, source):
-            _stamp(t, target); counts["threads"] += 1
+            _stamp(t, target)
+            counts["threads"] += 1
             if unarchive and t.get("deleted_at"):
-                t["deleted_at"] = None; counts["unarchived"] += 1
+                t["deleted_at"] = None
+                counts["unarchived"] += 1
     for run_id, info in runs.items():
         if isinstance(info, dict) and _owned(info, source):
-            _stamp(info, target); counts["runs"] += 1
+            _stamp(info, target)
+            counts["runs"] += 1
             if not info.get("thread_id") and f"legacy-{run_id}" in _threads:
                 info["thread_id"] = f"legacy-{run_id}"
     for row in _skills.values():
         if row.get("tier") in ("org", "user") and _owned(row, source):
-            _stamp(row, target); counts["skills"] += 1
+            _stamp(row, target)
+            counts["skills"] += 1
     if counts["threads"]:
         _save()
     if counts["skills"]:
@@ -265,28 +271,34 @@ def reassign_threads(runs: dict, thread_ids: list[str], target: "Identity") -> d
     for tid in wanted:
         t = _threads.get(tid)
         if t is not None:
-            _stamp(t, target); counts["threads"] += 1
+            _stamp(t, target)
+            counts["threads"] += 1
     for info in runs.values():
         if isinstance(info, dict) and info.get("thread_id") in wanted:
-            _stamp(info, target); counts["runs"] += 1
+            _stamp(info, target)
+            counts["runs"] += 1
     if counts["threads"]:
         _save()
     return counts
 
 
-def ensure_thread(thread_id: str, first_user_message: str, run_id: str,
-                  identity: Identity | None = None) -> None:
+def ensure_thread(
+    thread_id: str, first_user_message: str, run_id: str, identity: Identity | None = None
+) -> None:
     """Create a thread record on the first message (A4: no empty threads),
     stamped with its owner."""
     if thread_id in _threads:
         return
     now = _now()
-    _threads[thread_id] = _stamp({
-        "title": _readable(run_id, first_user_message),
-        "created_at": now,
-        "updated_at": now,
-        "deleted_at": None,
-    }, identity)
+    _threads[thread_id] = _stamp(
+        {
+            "title": _readable(run_id, first_user_message),
+            "created_at": now,
+            "updated_at": now,
+            "deleted_at": None,
+        },
+        identity,
+    )
     _save()
 
 
@@ -356,8 +368,11 @@ def get_thread(thread_id: str, runs: dict, identity: Identity | None = None) -> 
     if not t or t.get("deleted_at") or not _owned(t, identity):
         return None
     thread_runs = [
-        {"run_id": rid, "status": info.get("status", "unknown"),
-         "created_at": _run_created_at(rid, info)}
+        {
+            "run_id": rid,
+            "status": info.get("status", "unknown"),
+            "created_at": _run_created_at(rid, info),
+        }
         for rid, info in runs.items()
         if info.get("thread_id") == thread_id
     ]
@@ -450,19 +465,32 @@ def get_skill(skill_id: str, builtins: list[dict], identity: Identity | None = N
             enabled = b.get("enabled", True)
             if override and not override.get("deleted_at"):
                 enabled = bool(override.get("enabled", True))
-            return {**_skill_summary(skill_id, {**b, "enabled": enabled}),
-                    "body": b.get("body", ""), "files": b.get("files") or {}}
+            return {
+                **_skill_summary(skill_id, {**b, "enabled": enabled}),
+                "body": b.get("body", ""),
+                "files": b.get("files") or {},
+            }
     row = _skills.get(skill_id)
     if not row or row.get("deleted_at") or row.get("tier") == "built-in":
         return None
     if not _skill_visible(row, identity):
         return None
-    return {**_skill_summary(skill_id, row),
-            "body": row.get("body", ""), "files": row.get("files") or {}}
+    return {
+        **_skill_summary(skill_id, row),
+        "body": row.get("body", ""),
+        "files": row.get("files") or {},
+    }
 
 
-def install_skill(name: str, tier: str, description: str, source: str,
-                  body: str, files: dict, identity: Identity | None = None) -> dict | None:
+def install_skill(
+    name: str,
+    tier: str,
+    description: str,
+    source: str,
+    body: str,
+    files: dict,
+    identity: Identity | None = None,
+) -> dict | None:
     """Insert an org/user skill: untrusted + disabled until reviewed (Phase S
     gate ships with install), stamped with the installer's identity. Returns
     the summary, or None on a duplicate (tier, name) within the caller's
@@ -470,30 +498,38 @@ def install_skill(name: str, tier: str, description: str, source: str,
     the B1 schema."""
     _load_skills()
     for row in _skills.values():
-        if (row.get("tier") == tier and row.get("name") == name
-                and not row.get("deleted_at") and _skill_visible(row, identity)):
+        if (
+            row.get("tier") == tier
+            and row.get("name") == name
+            and not row.get("deleted_at")
+            and _skill_visible(row, identity)
+        ):
             return None
     now = _now()
     skill_id = uuid.uuid4().hex  # server-generated, opaque (C3)
-    _skills[skill_id] = _stamp({
-        "name": name,
-        "tier": tier,
-        "description": description,
-        "source": source,
-        "trust_state": "untrusted",
-        "enabled": False,
-        "body": body,
-        "files": files,
-        "created_at": now,
-        "updated_at": now,
-        "deleted_at": None,
-    }, identity)
+    _skills[skill_id] = _stamp(
+        {
+            "name": name,
+            "tier": tier,
+            "description": description,
+            "source": source,
+            "trust_state": "untrusted",
+            "enabled": False,
+            "body": body,
+            "files": files,
+            "created_at": now,
+            "updated_at": now,
+            "deleted_at": None,
+        },
+        identity,
+    )
     _save_skills()
     return _skill_summary(skill_id, _skills[skill_id])
 
 
-def set_skill_enabled(skill_id: str, enabled: bool, builtins: list[dict],
-                      identity: Identity | None = None) -> bool:
+def set_skill_enabled(
+    skill_id: str, enabled: bool, builtins: list[dict], identity: Identity | None = None
+) -> bool:
     """Toggle a skill. For built-ins this upserts an override row keyed by the
     deterministic builtin id. Returns False for unknown/deleted/not-visible
     skills. Trust gating (no enabling untrusted rows) and the admin gate for
@@ -511,19 +547,24 @@ def set_skill_enabled(skill_id: str, enabled: bool, builtins: list[dict],
         if b["skill_id"] == skill_id:
             now = _now()
             _skills[skill_id] = {
-                "name": b["name"], "tier": "built-in", "enabled": enabled,
-                "trust_state": "trusted", "source": "repo",
+                "name": b["name"],
+                "tier": "built-in",
+                "enabled": enabled,
+                "trust_state": "trusted",
+                "source": "repo",
                 "description": b.get("description", ""),
-                "created_at": now, "updated_at": now, "deleted_at": None,
-                "user_id": None, "org_id": None,
+                "created_at": now,
+                "updated_at": now,
+                "deleted_at": None,
+                "user_id": None,
+                "org_id": None,
             }
             _save_skills()
             return True
     return False
 
 
-def set_skill_trust(skill_id: str, trust_state: str,
-                    identity: Identity | None = None) -> bool:
+def set_skill_trust(skill_id: str, trust_state: str, identity: Identity | None = None) -> bool:
     """Review action: flip an org/user row's trust_state. Built-ins are
     repo-managed and never pass through here (route returns 409). False for
     rows not visible to `identity`."""

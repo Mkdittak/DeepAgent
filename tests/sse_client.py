@@ -1,4 +1,5 @@
 """Minimal SSE client helpers (stdlib only) to drive the backend for proofs."""
+
 import json
 import urllib.request
 
