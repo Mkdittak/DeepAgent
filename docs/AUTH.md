@@ -213,18 +213,14 @@ Turning the flag on would have made every existing conversation invisible, becau
 
 ### Configuration
 
-| Variable | Purpose |
-|---|---|
-| `AUTH_ENABLED` | The switch. `false` by default. |
-| `STYTCH_PROJECT_ID`, `STYTCH_SECRET`, `STYTCH_ENV` | Server keys; `test` or `live` |
-| `VITE_STYTCH_PUBLIC_TOKEN` | Browser key (frontend `.env`). Unset = the UI boots without a login screen |
-| `ARTIFACT_SIGNING_SECRET`, `ARTIFACT_SIGN_TTL_SECS` | Signed-link key and lifetime (default 60 s) |
-| `RUN_QUOTA_PER_ORG_PER_DAY` | Daily run cap per org (default 100) |
-| `AGENT_RECURSION_LIMIT` | Agent step budget per run (default 30) |
+All variables, defaults and which process reads them are in
+[REFERENCE.md §2](REFERENCE.md#2-environment-variables). The Stytch
+dashboard steps and the `.env` values to set are in
+[RUNNING.md §5](RUNNING.md#5-optional-authentication-and-tenancy-stytch-b2b).
 
 ### Tests
 
-Six standalone proofs need no running stack and no Stytch network (`tests/test_idor.py`, `test_forged_jwt.py`, `test_org_scope.py`, `test_admin_gate.py`, `test_quota.py`, `test_flag_off.py`). The forged-JWT test signs real RS256 tokens with a throwaway key and swaps the JWKS lookup for an in-process fake, so it exercises the real verification path deterministically. `tests/proof_auth_live.py` runs the same scenarios against the live stack with real Stytch sessions and real agent runs; it passed 77 of 77 checks.
+Six standalone proofs need no running stack and no Stytch network: `test_idor`, `test_forged_jwt`, `test_org_scope`, `test_admin_gate`, `test_quota`, `test_flag_off`. The forged-JWT test signs real RS256 tokens with a throwaway key and swaps the JWKS lookup for an in-process fake, so it exercises the real verification path deterministically. `tests/proof_auth_live.py` runs the same scenarios against the live stack with real Stytch sessions and real agent runs; it passed 77 of 77 checks. How to run each is in [../tests/README.md](../tests/README.md).
 
 ---
 

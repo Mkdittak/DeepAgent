@@ -26,6 +26,8 @@ $env:PYTHONPATH = (Get-Location).Path
 .venv\Scripts\python.exe tests\test_concurrency.py  # per-run contextvars isolation (globals removed)
 .venv\Scripts\python.exe tests\test_untrusted.py    # web_search <untrusted_web_content> framing
 .venv\Scripts\python.exe tests\test_envelope.py     # v1 event-envelope mapping (all types, null identity fields)
+.venv\Scripts\python.exe -m pytest tests\test_run_id.py  # run_id uniqueness suffix, slug bounds, legacy parsing, 409 on duplicate (#1)
+.venv\Scripts\python.exe -m pytest tests\test_health.py  # GET /health via TestClient
 ```
 
 ### 2b. Auth / tenancy (venv only, no live stack, no Stytch network)
@@ -89,6 +91,13 @@ node ../artifacts/_degrade.mjs
 ```
 
 ## Note
-These began as one-shot verification scripts, not a CI suite — no test runner,
-assertions are `print(... PASS/FAIL)`. Converting them to pytest + a frontend
-test runner and wiring CI is Bucket-B work (see docs/AUDIT.md).
+These began as one-shot verification scripts. The auth/skills suites
+(`test_admin_gate`, `test_flag_off`, `test_forged_jwt`, `test_idor`,
+`test_org_scope`, `test_quota`, `test_skills`), `test_registry`,
+`test_run_id` and `test_health` are now also collected by `pytest`: each file is one test function that runs its
+`check(...)` list and fails with every FAIL label in the assertion message
+(the PASS/FAIL log is in captured stdout). `Harness()` resets shared module
+state so they can run in any order in one process, and each still runs
+standalone via `python tests\<file>.py`. `test_finished_replay` skips itself
+under pytest when the backend is not up. The remaining module-level scripts,
+a frontend test runner and CI are open items (see docs/HISTORY.md §8).

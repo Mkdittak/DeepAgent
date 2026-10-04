@@ -235,7 +235,7 @@ if it is still running).
 **Memory M0** is the LangGraph checkpointer keyed by `thread_id`. Later turns
 see earlier messages, including skill files already read. The checkpoint file
 survives restarts. User-tier and org-tier memory are designed but not built;
-see [HISTORY.md](HISTORY.md#open-items-and-roadmap).
+see [HISTORY.md](HISTORY.md#8-open-items-and-roadmap).
 
 ---
 
