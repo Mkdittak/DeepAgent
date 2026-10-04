@@ -47,7 +47,7 @@ SESSION_TOKEN_HEADER = "x-session-token"
 
 # RBAC resource/action the org-skill management routes check. Must exist in
 # the Stytch dashboard's RBAC policy with stytch_admin granted "manage" (a
-# manual dashboard step — see docs/HOW_TO_RUN.md).
+# manual dashboard step — see docs/RUNNING.md).
 ORG_SKILLS_RESOURCE = "org_skills"
 ORG_SKILLS_MANAGE = "manage"
 ADMIN_ROLE = "stytch_admin"
