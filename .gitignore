@@ -37,5 +37,8 @@ desktop.ini
 # Claude Code
 .claude/
 
+# Personal learning notes — never committed
+learning/
+
 # Stale duplicate copy (has its own node_modules and possibly .env)
 DeepAgent/

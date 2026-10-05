@@ -1,8 +1,28 @@
-import sys, time, asyncio
+import asyncio
+import socket
+import sys
 
 sys.path.insert(0, ".")
-from sse_client import start_run, stream
+from sse_client import BASE, start_run, stream
 from temporalio.client import Client
+
+
+def _backend_up() -> bool:
+    host, _, port = BASE.removeprefix("http://").partition(":")
+    try:
+        with socket.create_connection((host, int(port or 80)), timeout=1):
+            return True
+    except OSError:
+        return False
+
+
+# Full-stack proof: needs Temporal + worker + backend (tests/README.md, section 5).
+if not _backend_up():
+    if "pytest" in sys.modules:
+        import pytest
+
+        pytest.skip(f"needs the full stack running ({BASE} not reachable)", allow_module_level=True)
+    raise SystemExit(f"backend not reachable at {BASE}; bring the stack up first")
 
 
 async def wait_done(wf_id):
