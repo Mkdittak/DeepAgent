@@ -18,6 +18,7 @@ Usage:
 
 from __future__ import annotations
 
+import contextlib
 import os
 import sys
 import tempfile
@@ -67,12 +68,35 @@ class _FakeTemporal:
         return _FakeHandle()
 
 
+_QUOTA_DEFAULT = m.RUN_QUOTA_PER_ORG_PER_DAY
+
+
+def reset_state() -> None:
+    """Return every module-level seam the suites touch to a known baseline, so
+    the suites are order-independent when pytest runs them in one process."""
+    os.environ["AUTH_ENABLED"] = "true"
+    auth._client = None
+    auth.reverify_network = REAL_REVERIFY
+    m.RUN_QUOTA_PER_ORG_PER_DAY = _QUOTA_DEFAULT
+    m.run_registry.clear()
+    m._persisted_max.clear()
+    store._threads.clear()
+    store._loaded = True
+    store._skills.clear()
+    store._skills_loaded = True
+    for f in (store.THREADS_FILE, store.SKILLS_FILE):
+        with contextlib.suppress(FileNotFoundError):
+            os.remove(f)
+    failures.clear()
+
+
 class Harness:
     A = Principal("member-A", "org-X", ["stytch_admin"])  # org X admin
     B = Principal("member-B", "org-X", ["stytch_member"])  # org X plain member
     C = Principal("member-C", "org-Y", ["stytch_admin"])  # org Y admin
 
     def __init__(self):
+        reset_state()
         self.m = m
         self.auth = auth
         self.store = store
@@ -143,5 +167,10 @@ def check(label: str, ok: bool) -> None:
 
 
 def finish() -> None:
-    print(f"\n{len(failures)} failure(s)")
-    sys.exit(1 if failures else 0)
+    """End of a suite: print the tally and fail as ONE assertion that lists
+    every failed check, so pytest shows them all (the PASS/FAIL log is in
+    captured stdout). Run as a script, the AssertionError still exits non-zero."""
+    failed = list(failures)
+    failures.clear()
+    print(f"\n{len(failed)} failure(s)")
+    assert not failed, f"{len(failed)} failed check(s):\n  " + "\n  ".join(failed)

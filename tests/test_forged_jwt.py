@@ -27,16 +27,20 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from auth_harness import REAL_GET_PRINCIPAL, check, finish  # noqa: E402  (sets env + imports backend)
+import jwt
+from auth_harness import (
+    REAL_GET_PRINCIPAL,
+    check,
+    finish,
+    reset_state,
+)
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+from fastapi import HTTPException
+from starlette.requests import Request
+from stytch.core.response_base import StytchError, StytchErrorDetails
 
-import jwt  # noqa: E402
-from cryptography.hazmat.primitives.asymmetric import rsa  # noqa: E402
-from cryptography.hazmat.primitives import serialization  # noqa: E402
-from fastapi import HTTPException  # noqa: E402
-from starlette.requests import Request  # noqa: E402
-from stytch.core.response_base import StytchError, StytchErrorDetails  # noqa: E402
-
-from backend import auth  # noqa: E402
+from backend import auth
 
 PROJECT_ID = os.environ["STYTCH_PROJECT_ID"]
 
@@ -80,86 +84,90 @@ def _token(pem, **kw):
     return jwt.encode(_claims(**kw), pem, algorithm="RS256", headers={"kid": "k1"})
 
 
-# --- fake the two network touchpoints on the real client ------------------
-client = auth.get_client()
-from jwt.algorithms import RSAAlgorithm  # noqa: E402
+def test_forged_jwt():
+    reset_state()  # an earlier suite may have flipped AUTH_ENABLED or swapped in a fake client
+    # --- fake the two network touchpoints on the real client ------------------
+    client = auth.get_client()
+    from jwt.algorithms import RSAAlgorithm
 
-_stytch_jwk = jwt.PyJWK(
-    {**RSAAlgorithm.to_jwk(STYTCH_PUB, as_dict=True), "kid": "k1", "alg": "RS256", "use": "sig"}
-)
-client.jwks_client.get_signing_key_from_jwt = lambda token: _stytch_jwk  # JWKS "fetched"
+    _stytch_jwk = jwt.PyJWK(
+        {**RSAAlgorithm.to_jwk(STYTCH_PUB, as_dict=True), "kid": "k1", "alg": "RS256", "use": "sig"}
+    )
+    client.jwks_client.get_signing_key_from_jwt = lambda token: _stytch_jwk  # JWKS "fetched"
 
-network_calls = []
+    network_calls = []
+
+    async def _reject(**kw):
+        network_calls.append(kw)
+        raise StytchError(StytchErrorDetails.from_unknown(401))
+
+    client.sessions.authenticate_async = _reject  # the fallback path always says no
+
+    def req(headers: dict) -> Request:
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/",
+            "headers": [(k.lower().encode(), v.encode()) for k, v in headers.items()],
+        }
+        return Request(scope)
+
+    def resolve(headers: dict):
+        try:
+            return asyncio.run(REAL_GET_PRINCIPAL(req(headers)))
+        except HTTPException as e:
+            return e.status_code
+
+    check("1 missing header -> 401", resolve({}) == 401)
+    check("2 non-bearer scheme -> 401", resolve({"Authorization": "Basic abc"}) == 401)
+    check("3 garbage token -> 401", resolve({"Authorization": "Bearer not.a.jwt"}) == 401)
+    check("3b empty bearer -> 401", resolve({"Authorization": "Bearer "}) == 401)
+
+    n0 = len(network_calls)
+    check(
+        "4 attacker-signed JWT -> 401",
+        resolve({"Authorization": f"Bearer {_token(ATTACKER_PEM)}"}) == 401,
+    )
+    check(
+        "5 right key, wrong project (aud) -> 401",
+        resolve({"Authorization": f"Bearer {_token(STYTCH_PEM, project='project-test-other')}"})
+        == 401,
+    )
+    check(
+        "6 right key, expired -> 401",
+        resolve({"Authorization": f"Bearer {_token(STYTCH_PEM, exp_delta=-60)}"}) == 401,
+    )
+    check(
+        "4-6 each fell through to the network fallback, which rejected",
+        len(network_calls) == n0 + 3,
+    )
+
+    p = resolve({"Authorization": f"Bearer {_token(STYTCH_PEM)}"})
+    check("7 control: valid token -> Principal", isinstance(p, auth.Principal))
+    if isinstance(p, auth.Principal):
+        check("7 member_id -> user_id", p.user_id == "member-real")
+        check("7 organization_id -> org_id", p.org_id == "org-real")
+        check("7 roles carried", p.roles == ["stytch_admin"])
+    check("7 verified locally (no network call)", len(network_calls) == n0 + 3)
+
+    # 401 bodies are uniform: a probing client can't tell forged from expired.
+    def detail(headers):
+        try:
+            asyncio.run(REAL_GET_PRINCIPAL(req(headers)))
+        except HTTPException as e:
+            return e.detail
+
+    check(
+        "401 detail is generic for garbage",
+        detail({"Authorization": "Bearer zzz"}) == "unauthorized",
+    )
+    check(
+        "401 detail is generic for forged",
+        detail({"Authorization": f"Bearer {_token(ATTACKER_PEM)}"}) == "unauthorized",
+    )
+
+    finish()
 
 
-async def _reject(**kw):
-    network_calls.append(kw)
-    raise StytchError(StytchErrorDetails.from_unknown(401))
-
-
-client.sessions.authenticate_async = _reject  # the fallback path always says no
-
-
-def req(headers: dict) -> Request:
-    scope = {
-        "type": "http",
-        "method": "GET",
-        "path": "/",
-        "headers": [(k.lower().encode(), v.encode()) for k, v in headers.items()],
-    }
-    return Request(scope)
-
-
-def resolve(headers: dict):
-    try:
-        return asyncio.run(REAL_GET_PRINCIPAL(req(headers)))
-    except HTTPException as e:
-        return e.status_code
-
-
-check("1 missing header -> 401", resolve({}) == 401)
-check("2 non-bearer scheme -> 401", resolve({"Authorization": "Basic abc"}) == 401)
-check("3 garbage token -> 401", resolve({"Authorization": "Bearer not.a.jwt"}) == 401)
-check("3b empty bearer -> 401", resolve({"Authorization": "Bearer "}) == 401)
-
-n0 = len(network_calls)
-check(
-    "4 attacker-signed JWT -> 401",
-    resolve({"Authorization": f"Bearer {_token(ATTACKER_PEM)}"}) == 401,
-)
-check(
-    "5 right key, wrong project (aud) -> 401",
-    resolve({"Authorization": f"Bearer {_token(STYTCH_PEM, project='project-test-other')}"}) == 401,
-)
-check(
-    "6 right key, expired -> 401",
-    resolve({"Authorization": f"Bearer {_token(STYTCH_PEM, exp_delta=-60)}"}) == 401,
-)
-check("4-6 each fell through to the network fallback, which rejected", len(network_calls) == n0 + 3)
-
-p = resolve({"Authorization": f"Bearer {_token(STYTCH_PEM)}"})
-check("7 control: valid token -> Principal", isinstance(p, auth.Principal))
-if isinstance(p, auth.Principal):
-    check("7 member_id -> user_id", p.user_id == "member-real")
-    check("7 organization_id -> org_id", p.org_id == "org-real")
-    check("7 roles carried", p.roles == ["stytch_admin"])
-check("7 verified locally (no network call)", len(network_calls) == n0 + 3)
-
-
-# 401 bodies are uniform: a probing client can't tell forged from expired.
-def detail(headers):
-    try:
-        asyncio.run(REAL_GET_PRINCIPAL(req(headers)))
-    except HTTPException as e:
-        return e.detail
-
-
-check(
-    "401 detail is generic for garbage", detail({"Authorization": "Bearer zzz"}) == "unauthorized"
-)
-check(
-    "401 detail is generic for forged",
-    detail({"Authorization": f"Bearer {_token(ATTACKER_PEM)}"}) == "unauthorized",
-)
-
-finish()
+if __name__ == "__main__":
+    test_forged_jwt()
